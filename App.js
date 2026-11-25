@@ -1,0 +1,694 @@
+import { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator, Alert, Animated, BackHandler, Dimensions, FlatList, Image,
+  Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput,
+  TouchableOpacity, View,
+} from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import { Ionicons } from '@expo/vector-icons';
+import { askGemini } from './gemini';
+
+// Кілт .env файлында: EXPO_PUBLIC_GEMINI_API_KEY=...
+const API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
+const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
+const CHATS = 'chats_v2';
+const OLD_HISTORY = 'chat_history';
+const PROFILE = 'profile_v1';
+const MAX_BASE64 = 17 * 1024 * 1024;
+const MAX_FILE_BYTES = 12 * 1024 * 1024;
+const DRAWER_W = Math.min(330, Dimensions.get('window').width * 0.84);
+
+const C = {
+  bg: '#0e0f12',
+  surface: '#1a1b20',
+  surface2: '#23242a',
+  border: '#2c2d34',
+  text: '#ececf1',
+  muted: '#8e8ea0',
+  accent: '#4f7cff',
+  danger: '#ff6b6b',
+};
+
+const SUGGESTIONS = [
+  'Қазақстан туралы қызықты дерек айт',
+  'Мәтінді қысқаша түйіндеп бер',
+  'Бизнес-идея ұсын',
+];
+
+// Файл мазмұны (data) жадта ғана тұрады, тарихқа аты мен түрі сақталады
+const strip = (m) =>
+  m.file ? { ...m, file: { name: m.file.name, mimeType: m.file.mimeType, uri: m.file.uri } } : m;
+
+const isImage = (f) => !!f && !!f.mimeType && f.mimeType.indexOf('image/') === 0;
+const isVideo = (f) => !!f && !!f.mimeType && f.mimeType.indexOf('video/') === 0;
+
+const readBase64 = (uri) =>
+  new Promise((resolve, reject) => {
+    const fail = () => reject(new Error('Файлды оқу мүмкін болмады'));
+    const xhr = new XMLHttpRequest();
+    xhr.responseType = 'blob';
+    xhr.onload = () => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+      reader.onerror = fail;
+      reader.readAsDataURL(xhr.response);
+    };
+    xhr.onerror = fail;
+    xhr.open('GET', uri);
+    xhr.send();
+  });
+
+// Ескі хабарламалардағы файл мазмұны жадта жоқ болса, uri арқылы қайта оқимыз (соңғы 3 файл)
+const withData = async (msgs) => {
+  const out = msgs.slice();
+  let n = 0;
+  for (let i = out.length - 1; i >= 0 && n < 3; i--) {
+    const f = out[i].file;
+    if (!f) continue;
+    n++;
+    if (!f.data && f.uri) {
+      try {
+        out[i] = { ...out[i], file: { ...f, data: await readBase64(f.uri) } };
+      } catch (e) {}
+    }
+  }
+  return out;
+};
+
+// **қалың** және `код` белгілерін өңдейді
+const inline = (str) =>
+  str.split(/(\*\*[^*]+\*\*|`[^`]+`)/).map((p, i) => {
+    if (p.length > 4 && p.indexOf('**') === 0) return <Text key={i} style={s.bold}>{p.slice(2, -2)}</Text>;
+    if (p.length > 2 && p[0] === '`') return <Text key={i} style={s.inlineCode}>{p.slice(1, -1)}</Text>;
+    return p;
+  });
+
+// Жауапты мәтін мен код блоктарына бөледі (``` ... ```)
+function RichText({ text }) {
+  const parts = String(text).split('```');
+  return (
+    <View style={s.botBody}>
+      {parts.map((part, i) => {
+        if (i % 2 === 1) {
+          const nl = part.indexOf('\n');
+          const lang = nl > -1 ? part.slice(0, nl).trim() : '';
+          const code = (nl > -1 ? part.slice(nl + 1) : part).replace(/\n$/, '');
+          return (
+            <View key={i} style={s.codeBox}>
+              {!!lang && <Text style={s.codeLang}>{lang}</Text>}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <Text style={s.codeText} selectable>{code}</Text>
+              </ScrollView>
+            </View>
+          );
+        }
+        if (!part.trim()) return null;
+        return <Text key={i} style={s.botText} selectable>{inline(part.trim())}</Text>;
+      })}
+    </View>
+  );
+}
+
+function FileThumb({ file, size }) {
+  if (isImage(file) && file.uri) {
+    return <Image source={{ uri: file.uri }} style={{ width: size, height: size, borderRadius: 10 }} />;
+  }
+  const icon = isVideo(file) ? 'videocam' : 'document-text';
+  return (
+    <View style={[s.thumbIcon, { width: size, height: size }]}>
+      <Ionicons name={icon} size={size * 0.5} color={C.muted} />
+    </View>
+  );
+}
+
+function Main() {
+  const [chats, setChats] = useState([]);
+  const [activeId, setActiveId] = useState(null);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [file, setFile] = useState(null);
+  const [sheet, setSheet] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [nameInput, setNameInput] = useState('');
+  const progress = useRef(new Animated.Value(0)).current;
+  const list = useRef(null);
+
+  const active = chats.find((c) => c.id === activeId);
+  const messages = active ? active.messages : [];
+
+  useEffect(() => {
+    (async () => {
+      try {
+        let saved = JSON.parse((await AsyncStorage.getItem(CHATS)) || 'null');
+        if (!saved) {
+          const old = JSON.parse((await AsyncStorage.getItem(OLD_HISTORY)) || '[]');
+          const first = old.find((m) => m.role === 'user');
+          saved = old.length
+            ? [{ id: String(Date.now()), title: ((first && first.text) || 'Ескі чат').slice(0, 40), messages: old, updatedAt: Date.now() }]
+            : [];
+        }
+        setChats(saved);
+        const p = JSON.parse((await AsyncStorage.getItem(PROFILE)) || 'null');
+        if (p && p.name) setProfile(p);
+      } catch (e) {
+        Alert.alert('Қате', e.message);
+      } finally {
+        setReady(true);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const clean = chats.map((c) => ({ ...c, messages: c.messages.map(strip) }));
+    AsyncStorage.setItem(CHATS, JSON.stringify(clean)).catch(() => {});
+  }, [chats, ready]);
+
+  // Android "артқа" батырмасы ашық менюді жабады
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (drawerOpen) {
+        closeDrawer();
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [drawerOpen]);
+
+  const upsert = (id, mutate) =>
+    setChats((prev) => {
+      const found = prev.find((c) => c.id === id);
+      const current = found || { id: id, title: '', messages: [], updatedAt: 0 };
+      const msgs = mutate(current.messages);
+      if (!msgs.length) return prev.filter((c) => c.id !== id);
+      const first = msgs.find((m) => m.role === 'user');
+      const title = (first && (first.text || (first.file && first.file.name))) || 'Жаңа чат';
+      const updated = { id: id, title: title.slice(0, 40), messages: msgs, updatedAt: Date.now() };
+      return [updated].concat(prev.filter((c) => c.id !== id));
+    });
+
+  const openDrawer = () => {
+    Keyboard.dismiss();
+    progress.setValue(0);
+    setDrawerOpen(true);
+    Animated.timing(progress, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+  };
+
+  const closeDrawer = () => {
+    Animated.timing(progress, { toValue: 0, duration: 180, useNativeDriver: true }).start(() =>
+      setDrawerOpen(false)
+    );
+  };
+
+  const newChat = () => {
+    if (loading) return;
+    setActiveId(null);
+    setFile(null);
+    setInput('');
+    if (drawerOpen) closeDrawer();
+  };
+
+  const openChat = (id) => {
+    if (loading) return;
+    setActiveId(id);
+    setFile(null);
+    closeDrawer();
+  };
+
+  const deleteChat = (id) => {
+    if (loading) return;
+    Alert.alert('Чатты өшіру?', 'Бұл чат жойылады', [
+      { text: 'Бас тарту', style: 'cancel' },
+      {
+        text: 'Өшіру',
+        style: 'destructive',
+        onPress: () => {
+          setChats((prev) => prev.filter((c) => c.id !== id));
+          if (id === activeId) setActiveId(null);
+        },
+      },
+    ]);
+  };
+
+  const saveProfile = () => {
+    const name = nameInput.trim();
+    if (!name) return;
+    const p = { name: name };
+    setProfile(p);
+    AsyncStorage.setItem(PROFILE, JSON.stringify(p)).catch(() => {});
+  };
+
+  const logout = () => {
+    Alert.alert('Аккаунттан шығу?', 'Атыңыз өшіріледі, чаттар құрылғыда қалады', [
+      { text: 'Бас тарту', style: 'cancel' },
+      {
+        text: 'Шығу',
+        style: 'destructive',
+        onPress: () => {
+          AsyncStorage.removeItem(PROFILE).catch(() => {});
+          progress.setValue(0);
+          setDrawerOpen(false);
+          setActiveId(null);
+          setFile(null);
+          setInput('');
+          setNameInput('');
+          setProfile(null);
+        },
+      },
+    ]);
+  };
+
+  const attach = (picked) => {
+    if (picked.data.length > MAX_BASE64) {
+      Alert.alert('Файл тым үлкен', 'Кішірек файл таңдаңыз (шамамен 12 МБ дейін)');
+      return;
+    }
+    setFile(picked);
+  };
+
+  const pickMedia = async (camera) => {
+    try {
+      if (camera) {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) return Alert.alert('Камераға рұқсат керек');
+      }
+      const open = camera ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
+      const result = await open({
+        mediaTypes: ['images', 'videos'],
+        base64: true,
+        quality: 0.6,
+        videoMaxDuration: 60,
+      });
+      if (result.canceled) return;
+      const a = result.assets[0];
+      if (a.fileSize && a.fileSize > MAX_FILE_BYTES) {
+        Alert.alert('Файл тым үлкен', 'Кішірек файл немесе қысқа видео таңдаңыз (шамамен 12 МБ дейін)');
+        return;
+      }
+      const video = a.type === 'video' || (a.mimeType || '').indexOf('video/') === 0;
+      setPicking(true);
+      const data = a.base64 || (await readBase64(a.uri));
+      attach({
+        name: a.fileName || (video ? 'video.mp4' : 'photo.jpg'),
+        uri: a.uri,
+        mimeType: a.mimeType || (video ? 'video/mp4' : 'image/jpeg'),
+        data: data,
+      });
+    } catch (e) {
+      Alert.alert('Қате', e.message);
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const pickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'text/plain'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      const a = result.assets[0];
+      if (a.size && a.size > MAX_FILE_BYTES) {
+        Alert.alert('Файл тым үлкен', 'Кішірек файл таңдаңыз (шамамен 12 МБ дейін)');
+        return;
+      }
+      setPicking(true);
+      const data = await readBase64(a.uri);
+      attach({ name: a.name, uri: a.uri, mimeType: a.mimeType || 'application/pdf', data: data });
+    } catch (e) {
+      Alert.alert('Қате', e.message);
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const choose = (fn) => {
+    setSheet(false);
+    setTimeout(fn, Platform.OS === 'ios' ? 600 : 250);
+  };
+
+  const send = async () => {
+    const text = input.trim();
+    if ((!text && !file) || loading || picking) return;
+    const base = messages;
+    const userMsg = file ? { role: 'user', text: text, file: file } : { role: 'user', text: text };
+    const next = base.concat([userMsg]);
+    let id = activeId;
+    if (!id) {
+      id = String(Date.now());
+      setActiveId(id);
+    }
+    const sentFile = file;
+    upsert(id, () => next);
+    setInput('');
+    setFile(null);
+    setLoading(true);
+    try {
+      const answer = await askGemini(API_KEY, await withData(next), profile ? profile.name : '');
+      upsert(id, (m) => m.concat([{ role: 'model', text: answer }]));
+    } catch (e) {
+      upsert(id, () => base);
+      setInput(text);
+      setFile(sentFile);
+      Alert.alert('Қате', e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const canSend = (input.trim().length > 0 || !!file) && !loading && !picking;
+
+  const renderMessage = ({ item }) => {
+    if (item.role === 'user') {
+      return (
+        <View style={s.userBubble}>
+          {item.file ? (
+            isImage(item.file) && item.file.uri ? (
+              <Image source={{ uri: item.file.uri }} style={s.msgImage} />
+            ) : (
+              <View style={s.fileRow}>
+                <FileThumb file={item.file} size={36} />
+                <Text style={s.fileName} numberOfLines={1}>{item.file.name}</Text>
+              </View>
+            )
+          ) : null}
+          {!!item.text && <Text style={s.userText} selectable>{item.text}</Text>}
+        </View>
+      );
+    }
+    return (
+      <View style={s.botRow}>
+        <Image source={require('./assets/dux-icon.png')} style={s.botAvatar} />
+        <RichText text={item.text} />
+      </View>
+    );
+  };
+
+  let body;
+  if (!ready) {
+    body = <ActivityIndicator style={s.flex} color={C.accent} />;
+  } else if (!profile) {
+    body = (
+      <KeyboardAvoidingView style={[s.flex, s.loginWrap]} behavior="padding">
+        <Image source={require('./assets/dux-icon.png')} style={s.logo} />
+        <Text style={s.hello}>Dux AI-ға қош келдіңіз</Text>
+        <Text style={s.hint}>Бастау үшін атыңызды жазыңыз</Text>
+        <View style={s.loginInputWrap}>
+          <TextInput
+            style={s.loginInput}
+            value={nameInput}
+            onChangeText={setNameInput}
+            placeholder="Атыңыз"
+            placeholderTextColor={C.muted}
+            maxLength={30}
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={saveProfile}
+          />
+        </View>
+        <TouchableOpacity
+          style={[s.newBtn, s.loginBtn, !nameInput.trim() && s.sendOff]}
+          onPress={saveProfile}
+          disabled={!nameInput.trim()}
+        >
+          <Text style={s.newBtnText}>Жалғастыру</Text>
+        </TouchableOpacity>
+      </KeyboardAvoidingView>
+    );
+  } else {
+    body = (
+      <KeyboardAvoidingView style={s.flex} behavior="padding">
+        <View style={s.header}>
+          <TouchableOpacity style={s.iconBtn} onPress={openDrawer}>
+            <Ionicons name="menu" size={26} color={C.text} />
+          </TouchableOpacity>
+          <Text style={s.headerTitle} numberOfLines={1}>{active ? active.title : 'Dux AI'}</Text>
+          <TouchableOpacity style={s.iconBtn} onPress={newChat} disabled={loading}>
+            <Ionicons name="create-outline" size={24} color={C.text} />
+          </TouchableOpacity>
+        </View>
+
+        <FlatList
+          key={activeId || 'new'}
+          ref={list}
+          style={s.flex}
+          contentContainerStyle={s.list}
+          data={messages}
+          keyExtractor={(_, i) => String(i)}
+          onContentSizeChange={() => list.current && list.current.scrollToEnd({ animated: true })}
+          keyboardShouldPersistTaps="handled"
+          ListEmptyComponent={
+            <View style={s.empty}>
+              <Image source={require('./assets/dux-icon.png')} style={s.logo} />
+              <Text style={s.hello}>Сәлем, {profile ? profile.name : ''}!</Text>
+              <Text style={s.hint}>Сұрақ қойыңыз, фото, видео немесе файл жіберіңіз</Text>
+              <View style={s.chips}>
+                {SUGGESTIONS.map((t) => (
+                  <TouchableOpacity key={t} style={s.chip} onPress={() => setInput(t)}>
+                    <Text style={s.chipText}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          }
+          renderItem={renderMessage}
+          ListFooterComponent={
+            loading ? (
+              <View style={s.botRow}>
+                <Image source={require('./assets/dux-icon.png')} style={s.botAvatar} />
+                <ActivityIndicator color={C.accent} />
+                <Text style={s.thinking}>Ойланып жатыр...</Text>
+              </View>
+            ) : null
+          }
+        />
+
+        {(file || picking) && (
+          <View style={s.preview}>
+            {picking ? (
+              <>
+                <ActivityIndicator color={C.accent} />
+                <Text style={s.previewName}>Файл дайындалуда...</Text>
+              </>
+            ) : (
+              <>
+                <FileThumb file={file} size={44} />
+                <Text style={s.previewName} numberOfLines={1}>{file.name}</Text>
+                <TouchableOpacity onPress={() => setFile(null)} style={s.iconBtn}>
+                  <Ionicons name="close-circle" size={24} color={C.muted} />
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
+
+        <View style={s.bar}>
+          <TouchableOpacity style={s.plusBtn} onPress={() => setSheet(true)} disabled={loading}>
+            <Ionicons name="add" size={26} color={C.text} />
+          </TouchableOpacity>
+          <View style={s.inputWrap}>
+            <TextInput
+              style={s.input}
+              value={input}
+              onChangeText={setInput}
+              multiline
+              placeholder="Хабарлама жазыңыз..."
+              placeholderTextColor={C.muted}
+            />
+          </View>
+          <TouchableOpacity
+            style={[s.sendBtn, !canSend && s.sendOff]}
+            onPress={send}
+            disabled={!canSend}
+          >
+            <Ionicons name="arrow-up" size={22} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={s.screen}>
+      {body}
+
+      {drawerOpen && (
+        <View style={StyleSheet.absoluteFill}>
+          <Animated.View
+            style={[s.backdrop, { opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0, 0.55] }) }]}
+          >
+            <Pressable style={s.flex} onPress={closeDrawer} />
+          </Animated.View>
+          <Animated.View
+            style={[
+              s.drawer,
+              {
+                width: DRAWER_W,
+                transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [-DRAWER_W, 0] }) }],
+              },
+            ]}
+          >
+            <View style={s.drawerHead}>
+              <Image source={require('./assets/dux-icon.png')} style={s.drawerLogo} />
+              <Text style={s.drawerTitle}>Dux AI</Text>
+            </View>
+
+            <TouchableOpacity style={s.newBtn} onPress={newChat} disabled={loading}>
+              <Ionicons name="add" size={22} color="#fff" />
+              <Text style={s.newBtnText}>Жаңа чат</Text>
+            </TouchableOpacity>
+
+            <Text style={s.section}>Соңғы чаттар</Text>
+            <FlatList
+              data={chats}
+              keyExtractor={(c) => c.id}
+              style={s.flex}
+              ListEmptyComponent={<Text style={s.noChats}>Әзірше чат жоқ</Text>}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[s.chatItem, item.id === activeId && s.chatItemActive]}
+                  onPress={() => openChat(item.id)}
+                  onLongPress={() => deleteChat(item.id)}
+                >
+                  <Ionicons name="chatbubble-outline" size={18} color={C.muted} />
+                  <Text style={s.chatTitle} numberOfLines={1}>{item.title}</Text>
+                  <TouchableOpacity onPress={() => deleteChat(item.id)} hitSlop={10}>
+                    <Ionicons name="trash-outline" size={18} color={C.muted} />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              )}
+            />
+
+            <View style={s.profileRow}>
+              <View style={s.avatar}>
+                <Text style={s.avatarText}>{profile ? profile.name.charAt(0).toUpperCase() : ''}</Text>
+              </View>
+              <Text style={s.profileName} numberOfLines={1}>{profile ? profile.name : ''}</Text>
+              <TouchableOpacity onPress={logout} hitSlop={10}>
+                <Ionicons name="log-out-outline" size={22} color={C.muted} />
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </View>
+      )}
+
+      <Modal visible={sheet} transparent animationType="slide" onRequestClose={() => setSheet(false)}>
+        <Pressable style={s.sheetBackdrop} onPress={() => setSheet(false)}>
+          <Pressable style={s.sheet} onPress={() => {}}>
+            <View style={s.grabber} />
+            <TouchableOpacity style={s.sheetRow} onPress={() => choose(() => pickMedia(true))}>
+              <Ionicons name="camera-outline" size={24} color={C.text} />
+              <Text style={s.sheetText}>Камера</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.sheetRow} onPress={() => choose(() => pickMedia(false))}>
+              <Ionicons name="images-outline" size={24} color={C.text} />
+              <Text style={s.sheetText}>Галерея (фото, видео)</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.sheetRow} onPress={() => choose(pickDocument)}>
+              <Ionicons name="document-outline" size={24} color={C.text} />
+              <Text style={s.sheetText}>Файл (PDF, TXT)</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <Main />
+    </SafeAreaProvider>
+  );
+}
+
+const s = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: C.bg },
+  flex: { flex: 1 },
+
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8 },
+  headerTitle: { flex: 1, color: C.text, fontSize: 17, fontWeight: '600', textAlign: 'center', paddingHorizontal: 8 },
+  iconBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+
+  list: { padding: 16, paddingBottom: 8, gap: 18, flexGrow: 1 },
+
+  userBubble: {
+    alignSelf: 'flex-end', maxWidth: '85%', backgroundColor: C.surface2,
+    paddingHorizontal: 16, paddingVertical: 11, borderRadius: 20, borderBottomRightRadius: 6, gap: 8,
+  },
+  userText: { color: C.text, fontSize: 16, lineHeight: 23 },
+  msgImage: { width: 220, height: 220, borderRadius: 14 },
+  fileRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  fileName: { color: C.text, flexShrink: 1 },
+  thumbIcon: { backgroundColor: C.surface, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+
+  botRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', paddingRight: 12 },
+  botAvatar: { width: 28, height: 28, borderRadius: 8, marginTop: 2 },
+  botBody: { flex: 1, gap: 10 },
+  botText: { color: C.text, fontSize: 16, lineHeight: 24 },
+  bold: { fontWeight: '700' },
+  inlineCode: { fontFamily: MONO, backgroundColor: C.surface2, color: '#ffb86c' },
+  codeBox: { backgroundColor: '#0a0b0d', borderColor: C.border, borderWidth: 1, borderRadius: 12, padding: 12, gap: 6 },
+  codeLang: { color: C.muted, fontSize: 12 },
+  codeText: { color: '#d6e2ff', fontFamily: MONO, fontSize: 13.5, lineHeight: 20 },
+  thinking: { color: C.muted, fontSize: 15 },
+
+  empty: { alignItems: 'center', paddingTop: 70, gap: 10, paddingHorizontal: 10 },
+  logo: { width: 84, height: 84, borderRadius: 22, marginBottom: 6 },
+  hello: { color: C.text, fontSize: 24, fontWeight: '700' },
+  hint: { color: C.muted, textAlign: 'center', fontSize: 15 },
+  chips: { marginTop: 22, gap: 10, alignSelf: 'stretch' },
+  chip: { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 16, paddingVertical: 13, paddingHorizontal: 16 },
+  chipText: { color: C.text, fontSize: 15 },
+
+  preview: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 12, marginBottom: 6,
+    padding: 8, backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border,
+  },
+  previewName: { flex: 1, color: C.text },
+
+  bar: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 10, paddingTop: 4, paddingBottom: 10, gap: 8 },
+  plusBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
+  inputWrap: { flex: 1, backgroundColor: C.surface, borderRadius: 24, borderWidth: 1, borderColor: C.border, paddingHorizontal: 16 },
+  input: { color: C.text, fontSize: 16, maxHeight: 130, minHeight: 42, paddingVertical: 10 },
+  sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
+  sendOff: { backgroundColor: C.surface2, opacity: 0.6 },
+
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
+  drawer: { position: 'absolute', top: 0, bottom: 0, left: 0, backgroundColor: C.surface, paddingHorizontal: 14, paddingTop: 14, borderRightWidth: 1, borderRightColor: C.border },
+  drawerHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 18, paddingHorizontal: 4 },
+  drawerLogo: { width: 34, height: 34, borderRadius: 10 },
+  drawerTitle: { color: C.text, fontSize: 22, fontWeight: '700' },
+  newBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: C.accent, borderRadius: 16, paddingVertical: 13 },
+  newBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  section: { color: C.muted, fontSize: 13, marginTop: 22, marginBottom: 8, paddingHorizontal: 4 },
+  noChats: { color: C.muted, paddingHorizontal: 4, paddingTop: 6 },
+  chatItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 12, borderRadius: 14 },
+  chatItemActive: { backgroundColor: C.surface2 },
+  chatTitle: { flex: 1, color: C.text, fontSize: 15 },
+
+  loginWrap: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, gap: 12 },
+  loginInputWrap: { alignSelf: 'stretch', backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, paddingHorizontal: 16, marginTop: 18 },
+  loginInput: { color: C.text, fontSize: 17, minHeight: 50 },
+  loginBtn: { alignSelf: 'stretch' },
+
+  profileRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 4, borderTopWidth: 1, borderTopColor: C.border },
+  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  profileName: { flex: 1, color: C.text, fontSize: 16 },
+
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingBottom: 28, paddingTop: 10 },
+  grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, marginBottom: 10 },
+  sheetRow: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 16, paddingHorizontal: 8 },
+  sheetText: { color: C.text, fontSize: 17 },
+});
