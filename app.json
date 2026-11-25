@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Dux AI",
+    "slug": "dux-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0e0f12",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0e0f12"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.duxai.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.duxai.app"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Dux AI фото мен видеоны талдау үшін галереяға қол жеткізуді сұрайды",
+          "cameraPermission": "Dux AI фото түсіру үшін камераны қолданады"
+        }
+      ]
+    ]
+  }
+}
