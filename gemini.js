@@ -1,6 +1,8 @@
 // Gemini API-мен жұмыс. Тарих: [{ role: 'user' | 'model', text, file?: { name, mimeType, data } }]
-const MODEL = 'gemini-3.7-flash'; // қажет болса басқа модельге ауыстырыңыз
-const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/' + MODEL + ':generateContent';
+// Квота таусылса (429), келесі модельге автоматты түрде ауысады
+const MODELS = ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+const endpoint = (model) =>
+  'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent';
 
 const SYSTEM = (name) =>
   'Сен — Dux AI, ақылды көмекші. ' +
@@ -27,17 +29,27 @@ const toContents = (messages) =>
 
 export async function askGemini(apiKey, messages, userName) {
   if (!apiKey) throw new Error('API кілті жоқ. .env файлына EXPO_PUBLIC_GEMINI_API_KEY қойыңыз');
-  const res = await fetch(ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM(userName) }] },
-      contents: toContents(messages),
-    }),
+  const body = JSON.stringify({
+    systemInstruction: { parts: [{ text: SYSTEM(userName) }] },
+    contents: toContents(messages),
   });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error((json.error && json.error.message) || 'Сервер қатесі: ' + res.status);
+  let json = {};
+  let lastError = 'Белгісіз қате';
+  for (const model of MODELS) {
+    const res = await fetch(endpoint(model), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: body,
+    });
+    json = await res.json().catch(() => ({}));
+    if (res.ok) break;
+    lastError = (json.error && json.error.message) || 'Сервер қатесі: ' + res.status;
+    // 429 — квота, 404 — модель жоқ, 503 — бос емес: келесі модельді көреміз
+    if (res.status !== 429 && res.status !== 404 && res.status !== 503) throw new Error(lastError);
+    json = {};
+  }
+  if (!json.candidates && !json.promptFeedback) {
+    throw new Error('Барлық модельдің күндік квотасы таусылды. Кейінірек қайталаңыз.\n' + lastError);
   }
   const cand = json.candidates && json.candidates[0];
   const text = cand && cand.content && cand.content.parts
