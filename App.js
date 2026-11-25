@@ -11,8 +11,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { askGemini } from './gemini';
 
-// Кілт .env файлында: EXPO_PUBLIC_GEMINI_API_KEY=...
-const API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
+const API_KEY = 'AQ.Ab8RN6KdZxec7Bnx57y36WIBp3oWc0u6UL_j6xIZ96Av-7aumw';
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const CHATS = 'chats_v2';
 const OLD_HISTORY = 'chat_history';
