@@ -14,9 +14,13 @@ const PROVIDERS = [
   { name: 'Groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: GROQ_KEY, models: ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile'] },
 ];
 
-const SYSTEM = (name, premium) =>
-  'Сен — Dux AI, ақылды көмекші. ' +
-  'Пайдаланушы қай тілде жазса, сол тілде жауап бер (қазақша, орысша, ағылшынша және кез келген басқа тіл). ' +
+const SYSTEM = (name, premium, language) =>
+  'You are Dux AI, a helpful assistant. ' +
+  (language === 'ru'
+    ? 'Всегда отвечай на русском языке, даже если пользователь пишет на другом языке. '
+    : language === 'en'
+      ? 'Always answer in English, even if the user writes in another language. '
+      : 'Әрқашан қазақ тілінде жауап бер, пайдаланушы басқа тілде жазса да. ') +
   'Фото, видео, PDF және мәтіндік файлдарды мұқият талдап, нақты сипаттап бер. ' +
   'Код жазғанда әрқашан тілі көрсетілген ``` блогын қолдан, қысқа түсініктеме қос. ' +
   'Жауап нақты және пайдалы болсын.' +
@@ -40,10 +44,10 @@ const toContents = (messages) =>
     return { role: m.role === 'model' ? 'model' : 'user', parts: parts };
   });
 
-async function askGoogle(apiKey, messages, userName, premium) {
+async function askGoogle(apiKey, messages, userName, premium, language) {
   if (!apiKey) throw new Error('API кілті жоқ. .env файлына EXPO_PUBLIC_GEMINI_API_KEY қойыңыз');
   const body = JSON.stringify({
-    systemInstruction: { parts: [{ text: SYSTEM(userName, premium) }] },
+    systemInstruction: { parts: [{ text: SYSTEM(userName, premium, language) }] },
     contents: toContents(messages),
     generationConfig: { maxOutputTokens: premium ? 8192 : 1024 },
   });
@@ -76,21 +80,21 @@ async function askGoogle(apiKey, messages, userName, premium) {
   return text;
 }
 
-const toOpenAI = (messages, userName, premium) =>
-  [{ role: 'system', content: SYSTEM(userName, premium) }].concat(
+const toOpenAI = (messages, userName, premium, language) =>
+  [{ role: 'system', content: SYSTEM(userName, premium, language) }].concat(
     messages.map((m) => ({
       role: m.role === 'model' ? 'assistant' : 'user',
       content: (m.file ? '[Файл: ' + m.file.name + '] ' : '') + (m.text || ''),
     }))
   );
 
-async function askCompat(p, messages, userName, premium) {
+async function askCompat(p, messages, userName, premium, language) {
   let lastError = p.name + ' қатесі';
   for (const model of p.models) {
     const res = await fetch(p.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + p.key },
-      body: JSON.stringify({ model: model, max_tokens: premium ? 4096 : 1024, messages: toOpenAI(messages, userName, premium) }),
+      body: JSON.stringify({ model: model, max_tokens: premium ? 4096 : 1024, messages: toOpenAI(messages, userName, premium, language) }),
     });
     const json = await res.json().catch(() => ({}));
     if (res.ok) {
@@ -107,7 +111,7 @@ async function askCompat(p, messages, userName, premium) {
 }
 
 // Тегін: мәтін — Cerebras/Groq, содан кейін Gemini (жеңіл). Premium: Gemini (күшті), қате болса — Cerebras/Groq
-export async function askGemini(apiKey, allMessages, userName, premium) {
+export async function askGemini(apiKey, allMessages, userName, premium, language = 'kk') {
   // Тек соңғы 20 хабарлама жіберіледі: жылдамырақ және квота аз кетеді
   let messages = allMessages.slice(-20);
   while (messages.length > 1 && messages[0].role === 'model') messages = messages.slice(1);
@@ -116,7 +120,7 @@ export async function askGemini(apiKey, allMessages, userName, premium) {
     for (const p of PROVIDERS) {
       if (!p.key) continue;
       try {
-        return await askCompat(p, messages, userName, premium);
+        return await askCompat(p, messages, userName, premium, language);
       } catch (e) {
         console.log(e.message);
       }
@@ -125,7 +129,7 @@ export async function askGemini(apiKey, allMessages, userName, premium) {
   };
   if (premium) {
     try {
-      return await askGoogle(apiKey, messages, userName, true);
+      return await askGoogle(apiKey, messages, userName, true, language);
     } catch (e) {
       if (hasFile) throw e;
       const r = await viaCompat();
@@ -137,5 +141,5 @@ export async function askGemini(apiKey, allMessages, userName, premium) {
     const r = await viaCompat();
     if (r) return r;
   }
-  return askGoogle(apiKey, messages, userName, false);
+  return askGoogle(apiKey, messages, userName, false, language);
 }
