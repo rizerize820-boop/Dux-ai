@@ -39,12 +39,26 @@ const C = {
   danger: '#FF6B6B',
 };
 
-const SUGGESTIONS = [
-  { icon: 'earth-outline', t: 'Қазақстан туралы қызықты дерек айт' },
-  { icon: 'document-text-outline', t: 'Мәтінді қысқаша түйіндеп бер' },
-  { icon: 'bulb-outline', t: 'Бизнес-идея ұсын' },
-  { icon: 'code-slash-outline', t: 'Python-да қарапайым бот жазып бер' },
-];
+const SUGGESTIONS = {
+  kk: [
+    { icon: 'earth-outline', t: 'Қазақстан туралы қызықты дерек айт' },
+    { icon: 'document-text-outline', t: 'Мәтінді қысқаша түйіндеп бер' },
+    { icon: 'bulb-outline', t: 'Бизнес-идея ұсын' },
+    { icon: 'code-slash-outline', t: 'Python-да қарапайым бот жазып бер' },
+  ],
+  ru: [
+    { icon: 'earth-outline', t: 'Расскажи интересный факт о Казахстане' },
+    { icon: 'document-text-outline', t: 'Кратко перескажи этот текст' },
+    { icon: 'bulb-outline', t: 'Предложи бизнес-идею' },
+    { icon: 'code-slash-outline', t: 'Напиши простого бота на Python' },
+  ],
+  en: [
+    { icon: 'earth-outline', t: 'Tell me an interesting fact about Kazakhstan' },
+    { icon: 'document-text-outline', t: 'Summarize this text briefly' },
+    { icon: 'bulb-outline', t: 'Suggest a business idea' },
+    { icon: 'code-slash-outline', t: 'Write a simple Python bot' },
+  ],
+};
 
 // Файл мазмұны (data) жадта ғана тұрады, тарихқа аты мен түрі сақталады
 const strip = (m) =>
@@ -182,6 +196,9 @@ function FileThumb({ file, size }) {
 
 function Main() {
   const [chats, setChats] = useState([]);
+  const [language, setLanguage] = useState('kk');
+  const [languageReady, setLanguageReady] = useState(false);
+  const tr = (kk, ru, en) => language === 'ru' ? ru : language === 'en' ? en : kk;
   const [activeId, setActiveId] = useState(null);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -205,6 +222,19 @@ function Main() {
   const list = useRef(null);
   const chatsOwner = useRef(null);
 
+  useEffect(() => {
+    AsyncStorage.getItem('app_language')
+      .then((saved) => {
+        if (saved === 'kk' || saved === 'ru' || saved === 'en') setLanguage(saved);
+      })
+      .catch(() => {})
+      .finally(() => setLanguageReady(true));
+  }, []);
+
+  useEffect(() => {
+    if (languageReady) AsyncStorage.setItem('app_language', language).catch(() => {});
+  }, [language, languageReady]);
+
   const active = chats.find((c) => c.id === activeId);
   const messages = active ? active.messages : [];
   const premium = status.premium;
@@ -213,7 +243,7 @@ function Main() {
   const left = Math.max(0, limit - used);
   const uid = session ? session.user.id : null;
   const profile = session
-    ? { name: (session.user.user_metadata && session.user.user_metadata.name) || session.user.email || 'Қолданушы' }
+    ? { name: (session.user.user_metadata && session.user.user_metadata.name) || session.user.email || tr('Қолданушы', 'Пользователь', 'User') }
     : null;
 
   // Аккаунт сессиясы (Supabase)
@@ -269,7 +299,7 @@ function Main() {
         chatsOwner.current = uid;
         setChats(saved);
       } catch (e) {
-        Alert.alert('Қате', e.message);
+        Alert.alert(tr('Қате', 'Ошибка', 'Error'), e.message);
       } finally {
         setReady(true);
       }
@@ -301,7 +331,7 @@ function Main() {
       const msgs = mutate(current.messages);
       if (!msgs.length) return prev.filter((c) => c.id !== id);
       const first = msgs.find((m) => m.role === 'user');
-      const title = (first && (first.text || (first.file && first.file.name))) || 'Жаңа чат';
+      const title = (first && (first.text || (first.file && first.file.name))) || tr('Жаңа чат', 'Новый чат', 'New chat');
       const updated = { id: id, title: title.slice(0, 40), messages: msgs, updatedAt: Date.now() };
       return [updated].concat(prev.filter((c) => c.id !== id));
     });
@@ -336,10 +366,10 @@ function Main() {
 
   const deleteChat = (id) => {
     if (loading) return;
-    Alert.alert('Чатты өшіру?', 'Бұл чат жойылады', [
-      { text: 'Бас тарту', style: 'cancel' },
+    Alert.alert(tr('Чатты өшіру?', 'Удалить чат?', 'Delete chat?'), tr('Бұл чат жойылады', 'Этот чат будет удалён', 'This chat will be deleted'), [
+      { text: tr('Бас тарту', 'Отмена', 'Cancel'), style: 'cancel' },
       {
-        text: 'Өшіру',
+        text: tr('Өшіру', 'Удалить', 'Delete'),
         style: 'destructive',
         onPress: () => {
           setChats((prev) => prev.filter((c) => c.id !== id));
@@ -354,19 +384,19 @@ function Main() {
     if (!code) return;
     const { data, error } = await supabase.rpc('redeem_code', { p_code: code });
     if (error || !data) {
-      Alert.alert('Код дұрыс емес', 'Код қате немесе бұрын қолданылған');
+      Alert.alert(tr('Код дұрыс емес', 'Неверный код', 'Invalid code'), tr('Код қате немесе бұрын қолданылған', 'Код неверный или уже использован', 'The code is invalid or has already been used'));
       return;
     }
     setStatus(data);
     setCodeInput('');
-    Alert.alert('Premium қосылды', 'Рақмет! Енді күніне ' + PREMIUM_DAILY + ' сұрақ және ең күшті модель.');
+    Alert.alert(tr('Premium қосылды', 'Premium активирован', 'Premium activated'), 'Рақмет! Енді күніне ' + PREMIUM_DAILY + ' сұрақ және ең күшті модель.');
   };
 
   const clearAll = () =>
-    Alert.alert('Барлық чатты өшіру?', 'Бұл әрекетті қайтару мүмкін емес', [
-      { text: 'Бас тарту', style: 'cancel' },
+    Alert.alert(tr('Барлық чатты өшіру?', 'Удалить все чаты?', 'Delete all chats?'), tr('Бұл әрекетті қайтару мүмкін емес', 'Это действие нельзя отменить', 'This action cannot be undone'), [
+      { text: tr('Бас тарту', 'Отмена', 'Cancel'), style: 'cancel' },
       {
-        text: 'Өшіру',
+        text: tr('Өшіру', 'Удалить', 'Delete'),
         style: 'destructive',
         onPress: () => {
           setChats([]);
@@ -378,11 +408,11 @@ function Main() {
   const submitAuth = async () => {
     const email = emailInput.trim();
     if (!email || passInput.length < 6) {
-      Alert.alert('Қате', 'Email және кемінде 6 таңбалы құпиясөз енгізіңіз');
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), tr('Email және кемінде 6 таңбалы құпиясөз енгізіңіз', 'Введите email и пароль не короче 6 символов', 'Enter an email and a password of at least 6 characters'));
       return;
     }
     if (mode === 'up' && !nameInput.trim()) {
-      Alert.alert('Қате', 'Атыңызды жазыңыз');
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), tr('Атыңызды жазыңыз', 'Введите имя', 'Enter your name'));
       return;
     }
     setBusy(true);
@@ -394,14 +424,14 @@ function Main() {
           options: { data: { name: nameInput.trim() } },
         });
         if (error) throw error;
-        if (!data.session) Alert.alert('Email растаңыз', 'Поштаңызға хат жіберілді. Сілтемені басып, содан кейін кіріңіз.');
+        if (!data.session) Alert.alert(tr('Email растаңыз', 'Подтвердите email', 'Verify email'), tr('Поштаңызға хат жіберілді. Сілтемені басып, содан кейін кіріңіз.', 'На вашу почту отправлено письмо. Перейдите по ссылке, затем войдите.', 'A confirmation email was sent. Open the link, then sign in.'));
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: email, password: passInput });
         if (error) throw error;
       }
       setPassInput('');
     } catch (e) {
-      Alert.alert('Қате', e.message);
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), e.message);
     } finally {
       setBusy(false);
     }
@@ -409,7 +439,7 @@ function Main() {
 
   const logout = () => {
     Alert.alert('Аккаунттан шығу?', 'Чаттар құрылғыда қалады, қайта кіргенде көресіз', [
-      { text: 'Бас тарту', style: 'cancel' },
+      { text: tr('Бас тарту', 'Отмена', 'Cancel'), style: 'cancel' },
       {
         text: 'Шығу',
         style: 'destructive',
@@ -427,7 +457,7 @@ function Main() {
 
   const attach = (picked) => {
     if (picked.data.length > MAX_BASE64) {
-      Alert.alert('Файл тым үлкен', 'Кішірек файл таңдаңыз (шамамен 12 МБ дейін)');
+      Alert.alert(tr('Файл тым үлкен', 'Файл слишком большой', 'File is too large'), tr('Кішірек файл таңдаңыз (шамамен 12 МБ дейін)', 'Выберите файл поменьше (примерно до 12 МБ)', 'Choose a smaller file (about 12 MB max)'));
       return;
     }
     setFile(picked);
@@ -437,7 +467,7 @@ function Main() {
     try {
       if (camera) {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
-        if (!perm.granted) return Alert.alert('Камераға рұқсат керек');
+        if (!perm.granted) return Alert.alert(tr('Камераға рұқсат керек', 'Нужно разрешение на камеру', 'Camera permission is required'));
       }
       const open = camera ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
       const result = await open({
@@ -449,7 +479,7 @@ function Main() {
       if (result.canceled) return;
       const a = result.assets[0];
       if (a.fileSize && a.fileSize > MAX_FILE_BYTES) {
-        Alert.alert('Файл тым үлкен', 'Кішірек файл немесе қысқа видео таңдаңыз (шамамен 12 МБ дейін)');
+        Alert.alert(tr('Файл тым үлкен', 'Файл слишком большой', 'File is too large'), tr('Кішірек файл немесе қысқа видео таңдаңыз (шамамен 12 МБ дейін)', 'Выберите файл поменьше или короткое видео (примерно до 12 МБ)', 'Choose a smaller file or a shorter video (about 12 MB max)'));
         return;
       }
       const video = a.type === 'video' || (a.mimeType || '').indexOf('video/') === 0;
@@ -462,7 +492,7 @@ function Main() {
         data: data,
       });
     } catch (e) {
-      Alert.alert('Қате', e.message);
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), e.message);
     } finally {
       setPicking(false);
     }
@@ -477,14 +507,14 @@ function Main() {
       if (result.canceled) return;
       const a = result.assets[0];
       if (a.size && a.size > MAX_FILE_BYTES) {
-        Alert.alert('Файл тым үлкен', 'Кішірек файл таңдаңыз (шамамен 12 МБ дейін)');
+        Alert.alert(tr('Файл тым үлкен', 'Файл слишком большой', 'File is too large'), tr('Кішірек файл таңдаңыз (шамамен 12 МБ дейін)', 'Выберите файл поменьше (примерно до 12 МБ)', 'Choose a smaller file (about 12 MB max)'));
         return;
       }
       setPicking(true);
       const data = await readBase64(a.uri);
       attach({ name: a.name, uri: a.uri, mimeType: a.mimeType || 'application/pdf', data: data });
     } catch (e) {
-      Alert.alert('Қате', e.message);
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), e.message);
     } finally {
       setPicking(false);
     }
@@ -514,18 +544,18 @@ function Main() {
       q = data;
     } catch (e) {
       setLoading(false);
-      Alert.alert('Қате', e.message);
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), e.message);
       return;
     }
     setStatus((p) => ({ ...p, used: q.used, limit: q.limit, premium: q.premium }));
     if (!q.ok) {
       setLoading(false);
       Alert.alert(
-        'Күндік лимит таусылды',
-        q.premium ? 'Лимит ертең жаңарады' : 'Тегін тарифте күніне ' + FREE_DAILY + ' сұрақ. Premium-ға ауысып, күніне ' + PREMIUM_DAILY + ' сұрақ қойыңыз.',
+        tr('Күндік лимит таусылды', 'Дневной лимит исчерпан', 'Daily limit reached'),
+        q.premium ? tr('Лимит ертең жаңарады', 'Лимит обновится завтра', 'The limit resets tomorrow') : 'Тегін тарифте күніне ' + FREE_DAILY + ' сұрақ. Premium-ға ауысып, күніне ' + PREMIUM_DAILY + ' сұрақ қойыңыз.',
         q.premium
           ? [{ text: 'OK' }]
-          : [{ text: 'Жабу', style: 'cancel' }, { text: 'Premium', onPress: () => setSettings(true) }]
+          : [{ text: tr('Жабу', 'Закрыть', 'Close'), style: 'cancel' }, { text: 'Premium', onPress: () => setSettings(true) }]
       );
       return;
     }
@@ -543,13 +573,13 @@ function Main() {
     setFile(null);
     setLoading(true);
     try {
-      const answer = await askGemini(API_KEY, await withData(next), profile ? profile.name : '', q.premium);
+      const answer = await askGemini(API_KEY, await withData(next), profile ? profile.name : '', q.premium, language);
       upsert(id, (m) => m.concat([{ role: 'model', text: answer }]));
     } catch (e) {
       upsert(id, () => base);
       setInput(text);
       setFile(sentFile);
-      Alert.alert('Қате', /Network request failed/i.test(e.message) ? 'Интернет байланысы жоқ. Тексеріп, қайта көріңіз' : e.message);
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), /Network request failed/i.test(e.message) ? tr('Интернет байланысы жоқ. Тексеріп, қайта көріңіз', 'Нет подключения к интернету. Проверьте связь и попробуйте снова', 'No internet connection. Check your connection and try again') : e.message);
     } finally {
       setLoading(false);
     }
@@ -596,7 +626,7 @@ function Main() {
       <KeyboardAvoidingView style={[s.flex, s.loginWrap]} behavior="padding">
         <Image source={require('./assets/dux-icon.png')} style={s.logo} />
         <Text style={s.hello}>Dux AI</Text>
-        <Text style={s.hint}>{mode === 'up' ? 'Жаңа аккаунт жасау' : 'Аккаунтқа кіру'}</Text>
+        <Text style={s.hint}>{mode === 'up' ? tr('Жаңа аккаунт жасау', 'Создать аккаунт', 'Create account') : tr('Аккаунтқа кіру', 'Войти в аккаунт', 'Sign in')}</Text>
         {!configured && (
           <Text style={[s.hint, { color: C.danger }]}>
             Supabase бапталмаған: config.js ішіне SUPABASE_URL және SUPABASE_ANON_KEY қойыңыз
@@ -640,10 +670,10 @@ function Main() {
           />
         </View>
         <TouchableOpacity style={[s.newBtn, s.loginBtn, busy && s.sendOff]} onPress={submitAuth} disabled={busy}>
-          {busy ? <ActivityIndicator color={C.accentInk} /> : <Text style={s.newBtnText}>{mode === 'up' ? 'Тіркелу' : 'Кіру'}</Text>}
+          {busy ? <ActivityIndicator color={C.accentInk} /> : <Text style={s.newBtnText}>{mode === 'up' ? tr('Тіркелу', 'Зарегистрироваться', 'Sign up') : tr('Кіру', 'Войти', 'Sign in')}</Text>}
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setMode(mode === 'up' ? 'in' : 'up')} hitSlop={10}>
-          <Text style={s.authSwitch}>{mode === 'up' ? 'Аккаунт бар ма? Кіру' : 'Аккаунт жоқ па? Тіркелу'}</Text>
+          <Text style={s.authSwitch}>{mode === 'up' ? tr('Аккаунт бар ма? Кіру', 'Уже есть аккаунт? Войти', 'Already have an account? Sign in') : tr('Аккаунт жоқ па? Тіркелу', 'Нет аккаунта? Зарегистрироваться', 'No account? Sign up')}</Text>
         </TouchableOpacity>
       </KeyboardAvoidingView>
     );
@@ -675,7 +705,7 @@ function Main() {
               <Text style={s.hello}>Сәлем, {profile ? profile.name : ''}</Text>
               <Text style={s.hint}>Сұрақ қойыңыз немесе фото, видео, файл жіберіңіз</Text>
               <View style={s.chips}>
-                {SUGGESTIONS.map((x) => (
+                {SUGGESTIONS[language].map((x) => (
                   <TouchableOpacity key={x.t} style={s.chip} onPress={() => setInput(x.t)}>
                     <View style={s.chipIcon}>
                       <Ionicons name={x.icon} size={20} color={C.accent} />
@@ -853,6 +883,25 @@ function Main() {
                   </View>
                   <Text style={s.profileName} numberOfLines={1}>{profile ? profile.name : ''}</Text>
                   <Text style={[s.badge, premium && s.badgePro]}>{premium ? 'PREMIUM' : 'FREE'}</Text>
+                </View>
+              </View>
+
+              <View style={s.card}>
+                <Text style={s.cardTitle}>${tr('Тіл / Язык / Language', 'Язык', 'Language')}</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                  {[
+                    { code: 'kk', label: 'Қазақша' },
+                    { code: 'ru', label: 'Русский' },
+                    { code: 'en', label: 'English' },
+                  ].map((item) => (
+                    <TouchableOpacity
+                      key={item.code}
+                      onPress={() => setLanguage(item.code)}
+                      style={[s.codeBtn, { flex: 1, backgroundColor: language === item.code ? C.accent : C.surface2 }]}
+                    >
+                      <Text style={[s.newBtnText, { color: language === item.code ? C.accentInk : C.text }]}>{item.label}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
               </View>
 
