@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, Animated, BackHandler, Dimensions, FlatList, Image,
-  Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput,
+  Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput,
   TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -10,12 +10,21 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { askGemini } from './gemini';
+import { BUY_URL, PREMIUM_CODES } from './config';
 
 const API_KEY = 'AQ.Ab8RN6KdZxec7Bnx57y36WIBp3oWc0u6UL_j6xIZ96Av-7aumw';
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const CHATS = 'chats_v2';
 const OLD_HISTORY = 'chat_history';
 const PROFILE = 'profile_v1';
+const PLAN = 'plan_v1';
+const USAGE = 'usage_v1';
+const FREE_DAILY = 15;
+const PREMIUM_DAILY = 300;
+const todayKey = () => {
+  const d = new Date();
+  return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+};
 const MAX_BASE64 = 17 * 1024 * 1024;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
 const DRAWER_W = Math.min(330, Dimensions.get('window').width * 0.84);
@@ -135,11 +144,18 @@ function Main() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [profile, setProfile] = useState(null);
   const [nameInput, setNameInput] = useState('');
+  const [premium, setPremium] = useState(false);
+  const [usage, setUsage] = useState({ day: todayKey(), count: 0 });
+  const [settings, setSettings] = useState(false);
+  const [codeInput, setCodeInput] = useState('');
   const progress = useRef(new Animated.Value(0)).current;
   const list = useRef(null);
 
   const active = chats.find((c) => c.id === activeId);
   const messages = active ? active.messages : [];
+  const used = usage.day === todayKey() ? usage.count : 0;
+  const limit = premium ? PREMIUM_DAILY : FREE_DAILY;
+  const left = Math.max(0, limit - used);
 
   useEffect(() => {
     (async () => {
@@ -155,6 +171,9 @@ function Main() {
         setChats(saved);
         const p = JSON.parse((await AsyncStorage.getItem(PROFILE)) || 'null');
         if (p && p.name) setProfile(p);
+        if ((await AsyncStorage.getItem(PLAN)) === 'premium') setPremium(true);
+        const u = JSON.parse((await AsyncStorage.getItem(USAGE)) || 'null');
+        if (u && u.day === todayKey()) setUsage(u);
       } catch (e) {
         Alert.alert('Қате', e.message);
       } finally {
@@ -235,6 +254,43 @@ function Main() {
       },
     ]);
   };
+
+  const bumpUsage = () =>
+    setUsage((prev) => {
+      const u = { day: todayKey(), count: (prev.day === todayKey() ? prev.count : 0) + 1 };
+      AsyncStorage.setItem(USAGE, JSON.stringify(u)).catch(() => {});
+      return u;
+    });
+
+  const activate = () => {
+    const code = codeInput.trim().toUpperCase();
+    if (code && PREMIUM_CODES.some((c) => c.toUpperCase() === code)) {
+      setPremium(true);
+      AsyncStorage.setItem(PLAN, 'premium').catch(() => {});
+      setCodeInput('');
+      Alert.alert('Premium қосылды', 'Рақмет! Енді күніне ' + PREMIUM_DAILY + ' сұрақ және ең күшті модель.');
+    } else {
+      Alert.alert('Код дұрыс емес', 'Кодты тексеріп, қайта енгізіңіз');
+    }
+  };
+
+  const dropPremium = () => {
+    setPremium(false);
+    AsyncStorage.removeItem(PLAN).catch(() => {});
+  };
+
+  const clearAll = () =>
+    Alert.alert('Барлық чатты өшіру?', 'Бұл әрекетті қайтару мүмкін емес', [
+      { text: 'Бас тарту', style: 'cancel' },
+      {
+        text: 'Өшіру',
+        style: 'destructive',
+        onPress: () => {
+          setChats([]);
+          setActiveId(null);
+        },
+      },
+    ]);
 
   const saveProfile = () => {
     const name = nameInput.trim();
@@ -337,6 +393,16 @@ function Main() {
   const send = async () => {
     const text = input.trim();
     if ((!text && !file) || loading || picking) return;
+    if (left <= 0) {
+      Alert.alert(
+        'Күндік лимит таусылды',
+        premium ? 'Лимит ертең жаңарады' : 'Тегін тарифте күніне ' + FREE_DAILY + ' сұрақ. Premium-ға ауысып, күніне ' + PREMIUM_DAILY + ' сұрақ қойыңыз.',
+        premium
+          ? [{ text: 'OK' }]
+          : [{ text: 'Жабу', style: 'cancel' }, { text: 'Premium', onPress: () => setSettings(true) }]
+      );
+      return;
+    }
     const base = messages;
     const userMsg = file ? { role: 'user', text: text, file: file } : { role: 'user', text: text };
     const next = base.concat([userMsg]);
@@ -351,8 +417,9 @@ function Main() {
     setFile(null);
     setLoading(true);
     try {
-      const answer = await askGemini(API_KEY, await withData(next), profile ? profile.name : '');
+      const answer = await askGemini(API_KEY, await withData(next), profile ? profile.name : '', premium);
       upsert(id, (m) => m.concat([{ role: 'model', text: answer }]));
+      bumpUsage();
     } catch (e) {
       upsert(id, () => base);
       setInput(text);
@@ -571,6 +638,16 @@ function Main() {
                 <Text style={s.avatarText}>{profile ? profile.name.charAt(0).toUpperCase() : ''}</Text>
               </View>
               <Text style={s.profileName} numberOfLines={1}>{profile ? profile.name : ''}</Text>
+              <Text style={[s.badge, premium && s.badgePro]}>{premium ? 'PRO' : left + '/' + limit}</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  closeDrawer();
+                  setTimeout(() => setSettings(true), 250);
+                }}
+                hitSlop={10}
+              >
+                <Ionicons name="settings-outline" size={22} color={C.muted} />
+              </TouchableOpacity>
               <TouchableOpacity onPress={logout} hitSlop={10}>
                 <Ionicons name="log-out-outline" size={22} color={C.muted} />
               </TouchableOpacity>
@@ -597,6 +674,89 @@ function Main() {
             </TouchableOpacity>
           </Pressable>
         </Pressable>
+      </Modal>
+      <Modal visible={settings} animationType="slide" onRequestClose={() => setSettings(false)}>
+        <SafeAreaProvider>
+          <SafeAreaView style={s.screen}>
+            <View style={s.header}>
+              <View style={s.iconBtn} />
+              <Text style={s.headerTitle}>Баптаулар</Text>
+              <TouchableOpacity style={s.iconBtn} onPress={() => setSettings(false)}>
+                <Ionicons name="close" size={26} color={C.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={s.setList} keyboardShouldPersistTaps="handled">
+              <View style={s.card}>
+                <View style={s.profileRow2}>
+                  <View style={s.avatar}>
+                    <Text style={s.avatarText}>{profile ? profile.name.charAt(0).toUpperCase() : ''}</Text>
+                  </View>
+                  <Text style={s.profileName} numberOfLines={1}>{profile ? profile.name : ''}</Text>
+                  <Text style={[s.badge, premium && s.badgePro]}>{premium ? 'PREMIUM' : 'FREE'}</Text>
+                </View>
+              </View>
+
+              <View style={s.card}>
+                <Text style={s.cardTitle}>Бүгінгі қолдану</Text>
+                <Text style={s.usageNum}>{used} / {limit}</Text>
+                <View style={s.bar2}>
+                  <View style={[s.bar2Fill, { width: Math.min(100, (used / limit) * 100) + '%' }]} />
+                </View>
+                <Text style={s.cardHint}>Лимит әр күні түнгі 00:00-де жаңарады</Text>
+              </View>
+
+              {!premium ? (
+                <View style={[s.card, s.cardPro]}>
+                  <Text style={s.cardTitle}>Dux Premium</Text>
+                  <Text style={s.perk}>• Күніне {PREMIUM_DAILY} сұрақ (тегін: {FREE_DAILY})</Text>
+                  <Text style={s.perk}>• Ең күшті модель: дәл жауап, күрделі код</Text>
+                  <Text style={s.perk}>• Ұзын, толық жауаптар</Text>
+                  <Text style={s.perk}>• Фото мен файлдарды терең талдау</Text>
+                  {!!BUY_URL && (
+                    <TouchableOpacity style={s.newBtn} onPress={() => Linking.openURL(BUY_URL)}>
+                      <Text style={s.newBtnText}>Premium сатып алу</Text>
+                    </TouchableOpacity>
+                  )}
+                  <View style={s.codeRow}>
+                    <TextInput
+                      style={s.codeInput}
+                      value={codeInput}
+                      onChangeText={setCodeInput}
+                      placeholder="Белсендіру коды"
+                      placeholderTextColor={C.muted}
+                      autoCapitalize="characters"
+                      autoCorrect={false}
+                    />
+                    <TouchableOpacity style={s.codeBtn} onPress={activate}>
+                      <Text style={s.newBtnText}>OK</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <View style={[s.card, s.cardPro]}>
+                  <Text style={s.cardTitle}>Premium белсенді</Text>
+                  <Text style={s.perk}>Күніне {PREMIUM_DAILY} сұрақ және ең күшті модель қосулы.</Text>
+                  <TouchableOpacity style={s.ghostBtn} onPress={dropPremium}>
+                    <Text style={s.ghostText}>Тегін тарифке қайту</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <TouchableOpacity style={s.ghostBtn} onPress={clearAll}>
+                <Text style={[s.ghostText, { color: C.danger }]}>Барлық чатты өшіру</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.ghostBtn}
+                onPress={() => {
+                  setSettings(false);
+                  setTimeout(logout, 300);
+                }}
+              >
+                <Text style={s.ghostText}>Аккаунттан шығу</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </SafeAreaView>
+        </SafeAreaProvider>
       </Modal>
     </SafeAreaView>
   );
@@ -684,6 +844,24 @@ const s = StyleSheet.create({
   avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   profileName: { flex: 1, color: C.text, fontSize: 16 },
+
+  badge: { color: C.muted, fontSize: 12, fontWeight: '700', backgroundColor: C.surface2, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, overflow: 'hidden' },
+  badgePro: { color: '#fff', backgroundColor: C.accent },
+  setList: { padding: 16, gap: 14 },
+  card: { backgroundColor: C.surface, borderRadius: 18, borderWidth: 1, borderColor: C.border, padding: 16, gap: 8 },
+  cardPro: { borderColor: C.accent },
+  cardTitle: { color: C.text, fontSize: 17, fontWeight: '700' },
+  cardHint: { color: C.muted, fontSize: 13 },
+  profileRow2: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  usageNum: { color: C.text, fontSize: 28, fontWeight: '700' },
+  bar2: { height: 8, borderRadius: 4, backgroundColor: C.surface2, overflow: 'hidden' },
+  bar2Fill: { height: 8, backgroundColor: C.accent },
+  perk: { color: C.text, fontSize: 15, lineHeight: 22 },
+  codeRow: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  codeInput: { flex: 1, color: C.text, fontSize: 16, minHeight: 46, paddingHorizontal: 14, backgroundColor: C.surface2, borderRadius: 14 },
+  codeBtn: { width: 64, alignItems: 'center', justifyContent: 'center', backgroundColor: C.accent, borderRadius: 14 },
+  ghostBtn: { alignItems: 'center', paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border },
+  ghostText: { color: C.text, fontSize: 16 },
 
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingBottom: 28, paddingTop: 10 },

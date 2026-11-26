@@ -2,7 +2,9 @@ import { CEREBRAS_KEY, GROQ_KEY } from './config';
 
 // Gemini API-мен жұмыс. Тарих: [{ role: 'user' | 'model', text, file?: { name, mimeType, data } }]
 // Квота таусылса (429), келесі модельге автоматты түрде ауысады
-const MODELS = ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+// Тегін тариф — жеңіл модельдер, Premium — ең күшті модельдер
+const FREE_MODELS = ['gemini-3.5-flash-lite', 'gemini-2.5-flash-lite'];
+const PRO_MODELS = ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'];
 const endpoint = (model) =>
   'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent';
 
@@ -12,12 +14,15 @@ const PROVIDERS = [
   { name: 'Groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: GROQ_KEY, models: ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile'] },
 ];
 
-const SYSTEM = (name) =>
+const SYSTEM = (name, premium) =>
   'Сен — Dux AI, ақылды көмекші. ' +
   'Пайдаланушы қай тілде жазса, сол тілде жауап бер (қазақша, орысша, ағылшынша және кез келген басқа тіл). ' +
   'Фото, видео, PDF және мәтіндік файлдарды мұқият талдап, нақты сипаттап бер. ' +
   'Код жазғанда әрқашан тілі көрсетілген ``` блогын қолдан, қысқа түсініктеме қос. ' +
   'Жауап нақты және пайдалы болсын.' +
+  (premium
+    ? ' Күрделі сұрақтарда қадам-қадаммен ойлап, терең, толық және дәл жауап бер.'
+    : ' Жауапты қысқа ұста.') +
   (name ? ' Пайдаланушының аты: ' + name + '.' : '');
 
 const toContents = (messages) =>
@@ -35,15 +40,16 @@ const toContents = (messages) =>
     return { role: m.role === 'model' ? 'model' : 'user', parts: parts };
   });
 
-async function askGoogle(apiKey, messages, userName) {
+async function askGoogle(apiKey, messages, userName, premium) {
   if (!apiKey) throw new Error('API кілті жоқ. .env файлына EXPO_PUBLIC_GEMINI_API_KEY қойыңыз');
   const body = JSON.stringify({
-    systemInstruction: { parts: [{ text: SYSTEM(userName) }] },
+    systemInstruction: { parts: [{ text: SYSTEM(userName, premium) }] },
     contents: toContents(messages),
+    generationConfig: { maxOutputTokens: premium ? 8192 : 1024 },
   });
   let json = {};
   let lastError = 'Белгісіз қате';
-  for (const model of MODELS) {
+  for (const model of premium ? PRO_MODELS : FREE_MODELS) {
     const res = await fetch(endpoint(model), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
@@ -70,21 +76,21 @@ async function askGoogle(apiKey, messages, userName) {
   return text;
 }
 
-const toOpenAI = (messages, userName) =>
-  [{ role: 'system', content: SYSTEM(userName) }].concat(
+const toOpenAI = (messages, userName, premium) =>
+  [{ role: 'system', content: SYSTEM(userName, premium) }].concat(
     messages.map((m) => ({
       role: m.role === 'model' ? 'assistant' : 'user',
       content: (m.file ? '[Файл: ' + m.file.name + '] ' : '') + (m.text || ''),
     }))
   );
 
-async function askCompat(p, messages, userName) {
+async function askCompat(p, messages, userName, premium) {
   let lastError = p.name + ' қатесі';
   for (const model of p.models) {
     const res = await fetch(p.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + p.key },
-      body: JSON.stringify({ model: model, messages: toOpenAI(messages, userName) }),
+      body: JSON.stringify({ model: model, max_tokens: premium ? 4096 : 1024, messages: toOpenAI(messages, userName, premium) }),
     });
     const json = await res.json().catch(() => ({}));
     if (res.ok) {
@@ -100,18 +106,33 @@ async function askCompat(p, messages, userName) {
   throw new Error(lastError);
 }
 
-// Фото/файл болса — Gemini; әйтпесе Cerebras → Groq → Gemini
-export async function askGemini(apiKey, messages, userName) {
+// Тегін: мәтін — Cerebras/Groq, содан кейін Gemini (жеңіл). Premium: Gemini (күшті), қате болса — Cerebras/Groq
+export async function askGemini(apiKey, messages, userName, premium) {
   const hasFile = messages.some((m) => m.file && m.file.data);
-  if (!hasFile) {
+  const viaCompat = async () => {
     for (const p of PROVIDERS) {
       if (!p.key) continue;
       try {
-        return await askCompat(p, messages, userName);
+        return await askCompat(p, messages, userName, premium);
       } catch (e) {
         console.log(e.message);
       }
     }
+    return null;
+  };
+  if (premium) {
+    try {
+      return await askGoogle(apiKey, messages, userName, true);
+    } catch (e) {
+      if (hasFile) throw e;
+      const r = await viaCompat();
+      if (r) return r;
+      throw e;
+    }
   }
-  return askGoogle(apiKey, messages, userName);
+  if (!hasFile) {
+    const r = await viaCompat();
+    if (r) return r;
+  }
+  return askGoogle(apiKey, messages, userName, false);
 }
