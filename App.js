@@ -26,20 +26,24 @@ const MAX_FILE_BYTES = 12 * 1024 * 1024;
 const DRAWER_W = Math.min(330, Dimensions.get('window').width * 0.84);
 
 const C = {
-  bg: '#0e0f12',
-  surface: '#1a1b20',
-  surface2: '#23242a',
-  border: '#2c2d34',
-  text: '#ececf1',
-  muted: '#8e8ea0',
-  accent: '#4f7cff',
-  danger: '#ff6b6b',
+  bg: '#0A101D',
+  surface: '#111A2C',
+  surface2: '#192640',
+  border: '#243453',
+  text: '#EAF0FA',
+  muted: '#8696B3',
+  accent: '#2FC4E0',
+  accentInk: '#04222B',
+  gold: '#F2C14E',
+  goldInk: '#2B2005',
+  danger: '#FF6B6B',
 };
 
 const SUGGESTIONS = [
-  'Қазақстан туралы қызықты дерек айт',
-  'Мәтінді қысқаша түйіндеп бер',
-  'Бизнес-идея ұсын',
+  { icon: 'earth-outline', t: 'Қазақстан туралы қызықты дерек айт' },
+  { icon: 'document-text-outline', t: 'Мәтінді қысқаша түйіндеп бер' },
+  { icon: 'bulb-outline', t: 'Бизнес-идея ұсын' },
+  { icon: 'code-slash-outline', t: 'Python-да қарапайым бот жазып бер' },
 ];
 
 // Файл мазмұны (data) жадта ғана тұрады, тарихқа аты мен түрі сақталады
@@ -91,7 +95,7 @@ const inline = (str) =>
   });
 
 // Жауапты мәтін мен код блоктарына бөледі (``` ... ```)
-function RichText({ text }) {
+function RichText({ text, onCopy, copied }) {
   const parts = String(text).split('```');
   return (
     <View style={s.rich}>
@@ -102,7 +106,13 @@ function RichText({ text }) {
           const code = (nl > -1 ? part.slice(nl + 1) : part).replace(/\n$/, '');
           return (
             <View key={i} style={s.codeBox}>
-              {!!lang && <Text style={s.codeLang}>{lang}</Text>}
+              <View style={s.codeHead}>
+                <Text style={s.codeLang}>{lang || 'код'}</Text>
+                <TouchableOpacity onPress={() => onCopy(code)} hitSlop={10} style={s.codeCopy}>
+                  <Ionicons name={copied === code ? 'checkmark' : 'copy-outline'} size={15} color={C.muted} />
+                  <Text style={s.codeCopyText}>{copied === code ? 'Көшірілді' : 'Көшіру'}</Text>
+                </TouchableOpacity>
+              </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <Text style={s.codeText} selectable>{code}</Text>
               </ScrollView>
@@ -128,6 +138,32 @@ function RichText({ text }) {
           </Text>
         );
       })}
+    </View>
+  );
+}
+
+// Жауап күтіліп жатқанда үш нүкте кезекпен жанады
+function TypingDots() {
+  const dots = useRef([0, 1, 2].map(() => new Animated.Value(0.3))).current;
+  useEffect(() => {
+    const loops = dots.map((v, i) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(i * 160),
+          Animated.timing(v, { toValue: 1, duration: 320, useNativeDriver: true }),
+          Animated.timing(v, { toValue: 0.3, duration: 320, useNativeDriver: true }),
+          Animated.delay((2 - i) * 160),
+        ])
+      )
+    );
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, []);
+  return (
+    <View style={s.dots}>
+      {dots.map((v, i) => (
+        <Animated.View key={i} style={[s.dot, { opacity: v }]} />
+      ))}
     </View>
   );
 }
@@ -543,7 +579,7 @@ function Main() {
       <View style={s.botRow}>
         <Image source={require('./assets/dux-icon.png')} style={s.botAvatar} />
         <View style={s.botBody}>
-          <RichText text={item.text} />
+          <RichText text={item.text} onCopy={copyText} copied={copied} />
           <TouchableOpacity onPress={() => copyText(item.text)} hitSlop={10} style={s.copyBtn}>
             <Ionicons name={copied === item.text ? 'checkmark' : 'copy-outline'} size={17} color={C.muted} />
           </TouchableOpacity>
@@ -604,7 +640,7 @@ function Main() {
           />
         </View>
         <TouchableOpacity style={[s.newBtn, s.loginBtn, busy && s.sendOff]} onPress={submitAuth} disabled={busy}>
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.newBtnText}>{mode === 'up' ? 'Тіркелу' : 'Кіру'}</Text>}
+          {busy ? <ActivityIndicator color={C.accentInk} /> : <Text style={s.newBtnText}>{mode === 'up' ? 'Тіркелу' : 'Кіру'}</Text>}
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setMode(mode === 'up' ? 'in' : 'up')} hitSlop={10}>
           <Text style={s.authSwitch}>{mode === 'up' ? 'Аккаунт бар ма? Кіру' : 'Аккаунт жоқ па? Тіркелу'}</Text>
@@ -636,12 +672,15 @@ function Main() {
           ListEmptyComponent={
             <View style={s.empty}>
               <Image source={require('./assets/dux-icon.png')} style={s.logo} />
-              <Text style={s.hello}>Сәлем, {profile ? profile.name : ''}!</Text>
-              <Text style={s.hint}>Сұрақ қойыңыз, фото, видео немесе файл жіберіңіз</Text>
+              <Text style={s.hello}>Сәлем, {profile ? profile.name : ''}</Text>
+              <Text style={s.hint}>Сұрақ қойыңыз немесе фото, видео, файл жіберіңіз</Text>
               <View style={s.chips}>
-                {SUGGESTIONS.map((t) => (
-                  <TouchableOpacity key={t} style={s.chip} onPress={() => setInput(t)}>
-                    <Text style={s.chipText}>{t}</Text>
+                {SUGGESTIONS.map((x) => (
+                  <TouchableOpacity key={x.t} style={s.chip} onPress={() => setInput(x.t)}>
+                    <View style={s.chipIcon}>
+                      <Ionicons name={x.icon} size={20} color={C.accent} />
+                    </View>
+                    <Text style={s.chipText}>{x.t}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -652,8 +691,7 @@ function Main() {
             loading ? (
               <View style={s.botRow}>
                 <Image source={require('./assets/dux-icon.png')} style={s.botAvatar} />
-                <ActivityIndicator color={C.accent} />
-                <Text style={s.thinking}>Ойланып жатыр...</Text>
+                <TypingDots />
               </View>
             ) : null
           }
@@ -679,10 +717,10 @@ function Main() {
         )}
 
         <View style={s.bar}>
-          <TouchableOpacity style={s.plusBtn} onPress={() => setSheet(true)} disabled={loading}>
-            <Ionicons name="add" size={26} color={C.text} />
-          </TouchableOpacity>
           <View style={s.inputWrap}>
+            <TouchableOpacity style={s.plusBtn} onPress={() => setSheet(true)} disabled={loading}>
+              <Ionicons name="add" size={24} color={C.text} />
+            </TouchableOpacity>
             <TextInput
               style={s.input}
               value={input}
@@ -691,14 +729,14 @@ function Main() {
               placeholder="Хабарлама жазыңыз..."
               placeholderTextColor={C.muted}
             />
+            <TouchableOpacity
+              style={[s.sendBtn, !canSend && s.sendOff]}
+              onPress={send}
+              disabled={!canSend}
+            >
+              <Ionicons name="arrow-up" size={20} color={C.accentInk} />
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            style={[s.sendBtn, !canSend && s.sendOff]}
-            onPress={send}
-            disabled={!canSend}
-          >
-            <Ionicons name="arrow-up" size={22} color="#fff" />
-          </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
     );
@@ -822,7 +860,7 @@ function Main() {
                 <Text style={s.cardTitle}>Бүгінгі қолдану</Text>
                 <Text style={s.usageNum}>{used} / {limit}</Text>
                 <View style={s.bar2}>
-                  <View style={[s.bar2Fill, { width: Math.min(100, (used / limit) * 100) + '%' }]} />
+                  <View style={[s.bar2Fill, { width: Math.min(100, (used / limit) * 100) + '%', backgroundColor: used / limit > 0.9 ? C.danger : premium ? C.gold : C.accent }]} />
                 </View>
                 <Text style={s.cardHint}>Лимит әр күні түнгі 00:00-де жаңарады</Text>
               </View>
@@ -896,43 +934,50 @@ const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
   flex: { flex: 1 },
 
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8 },
-  headerTitle: { flex: 1, color: C.text, fontSize: 17, fontWeight: '600', textAlign: 'center', paddingHorizontal: 8 },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
+  headerTitle: { flex: 1, color: C.text, fontSize: 17, fontWeight: '600', letterSpacing: -0.2, textAlign: 'center', paddingHorizontal: 8 },
   iconBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
 
-  list: { padding: 16, paddingBottom: 8, gap: 18, flexGrow: 1 },
+  list: { padding: 16, paddingBottom: 12, gap: 22, flexGrow: 1 },
 
   userBubble: {
-    alignSelf: 'flex-end', maxWidth: '85%', backgroundColor: C.surface2,
-    paddingHorizontal: 16, paddingVertical: 11, borderRadius: 20, borderBottomRightRadius: 6, gap: 8,
+    alignSelf: 'flex-end', maxWidth: '82%', backgroundColor: C.accent,
+    paddingHorizontal: 16, paddingVertical: 11, borderRadius: 22, borderBottomRightRadius: 6, gap: 8,
   },
-  userText: { color: C.text, fontSize: 16, lineHeight: 23 },
+  userText: { color: C.accentInk, fontSize: 16, lineHeight: 23, fontWeight: '500' },
   msgImage: { width: 220, height: 220, borderRadius: 14 },
   fileRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  fileName: { color: C.text, flexShrink: 1 },
+  fileName: { color: C.accentInk, flexShrink: 1, fontWeight: '500' },
   thumbIcon: { backgroundColor: C.surface, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
 
-  botRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', paddingRight: 12 },
-  botAvatar: { width: 28, height: 28, borderRadius: 8, marginTop: 2 },
+  botRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', paddingRight: 8 },
+  botAvatar: { width: 28, height: 28, borderRadius: 9, marginTop: 2 },
   botBody: { flex: 1, gap: 6 },
-  rich: { gap: 10 },
-  heading: { fontWeight: '700', fontSize: 17 },
-  copyBtn: { alignSelf: 'flex-start', padding: 2 },
-  botText: { color: C.text, fontSize: 16, lineHeight: 24 },
+  rich: { gap: 12 },
+  botText: { color: C.text, fontSize: 16, lineHeight: 25 },
+  heading: { color: C.text, fontWeight: '700', fontSize: 18, letterSpacing: -0.2 },
   bold: { fontWeight: '700' },
-  inlineCode: { fontFamily: MONO, backgroundColor: C.surface2, color: '#ffb86c' },
-  codeBox: { backgroundColor: '#0a0b0d', borderColor: C.border, borderWidth: 1, borderRadius: 12, padding: 12, gap: 6 },
-  codeLang: { color: C.muted, fontSize: 12 },
-  codeText: { color: '#d6e2ff', fontFamily: MONO, fontSize: 13.5, lineHeight: 20 },
-  thinking: { color: C.muted, fontSize: 15 },
+  inlineCode: { fontFamily: MONO, backgroundColor: C.surface2, color: C.gold },
+  copyBtn: { alignSelf: 'flex-start', padding: 2 },
 
-  empty: { alignItems: 'center', paddingTop: 70, gap: 10, paddingHorizontal: 10 },
-  logo: { width: 84, height: 84, borderRadius: 22, marginBottom: 6 },
-  hello: { color: C.text, fontSize: 24, fontWeight: '700' },
-  hint: { color: C.muted, textAlign: 'center', fontSize: 15 },
-  chips: { marginTop: 22, gap: 10, alignSelf: 'stretch' },
-  chip: { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 16, paddingVertical: 13, paddingHorizontal: 16 },
-  chipText: { color: C.text, fontSize: 15 },
+  codeBox: { backgroundColor: '#070B14', borderColor: C.border, borderWidth: 1, borderRadius: 14, overflow: 'hidden' },
+  codeHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: C.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
+  codeLang: { color: C.muted, fontSize: 12 },
+  codeCopy: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  codeCopyText: { color: C.muted, fontSize: 12 },
+  codeText: { color: '#CFE3F5', fontFamily: MONO, fontSize: 13.5, lineHeight: 20, padding: 12 },
+
+  dots: { flexDirection: 'row', gap: 6, alignItems: 'center', height: 28 },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.accent },
+
+  empty: { alignItems: 'flex-start', paddingTop: 36, gap: 10, paddingHorizontal: 4 },
+  logo: { width: 56, height: 56, borderRadius: 16, marginBottom: 14 },
+  hello: { color: C.text, fontSize: 32, lineHeight: 38, fontWeight: '700', letterSpacing: -0.8 },
+  hint: { color: C.muted, fontSize: 16, lineHeight: 23 },
+  chips: { marginTop: 26, gap: 10, alignSelf: 'stretch' },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 16, padding: 14 },
+  chipIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
+  chipText: { flex: 1, color: C.text, fontSize: 15.5, lineHeight: 21 },
 
   preview: {
     flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 12, marginBottom: 6,
@@ -940,28 +985,27 @@ const s = StyleSheet.create({
   },
   previewName: { flex: 1, color: C.text },
 
-  bar: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 10, paddingTop: 4, paddingBottom: 10, gap: 8 },
-  plusBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
-  inputWrap: { flex: 1, backgroundColor: C.surface, borderRadius: 24, borderWidth: 1, borderColor: C.border, paddingHorizontal: 16 },
-  input: { color: C.text, fontSize: 16, maxHeight: 130, minHeight: 42, paddingVertical: 10 },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
-  sendOff: { backgroundColor: C.surface2, opacity: 0.6 },
+  bar: { paddingHorizontal: 12, paddingTop: 6, paddingBottom: 10 },
+  inputWrap: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, backgroundColor: C.surface, borderRadius: 26, borderWidth: 1, borderColor: C.border, padding: 5 },
+  plusBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
+  input: { flex: 1, color: C.text, fontSize: 16, maxHeight: 130, minHeight: 38, paddingVertical: 8, paddingHorizontal: 8 },
+  sendBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
+  sendOff: { backgroundColor: C.surface2, opacity: 0.5 },
 
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
   drawer: { position: 'absolute', top: 0, bottom: 0, left: 0, backgroundColor: C.surface, paddingHorizontal: 14, paddingTop: 14, borderRightWidth: 1, borderRightColor: C.border },
   drawerHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 18, paddingHorizontal: 4 },
   drawerLogo: { width: 34, height: 34, borderRadius: 10 },
-  drawerTitle: { color: C.text, fontSize: 22, fontWeight: '700' },
+  drawerTitle: { color: C.text, fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
   newBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: C.accent, borderRadius: 16, paddingVertical: 13 },
-  newBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  section: { color: C.muted, fontSize: 13, marginTop: 22, marginBottom: 8, paddingHorizontal: 4 },
+  newBtnText: { color: C.accentInk, fontSize: 16, fontWeight: '700' },
+  section: { color: C.muted, fontSize: 13, fontWeight: '600', marginTop: 22, marginBottom: 8, paddingHorizontal: 4 },
   noChats: { color: C.muted, paddingHorizontal: 4, paddingTop: 6 },
   chatItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 12, borderRadius: 14 },
   chatItemActive: { backgroundColor: C.surface2 },
   chatTitle: { flex: 1, color: C.text, fontSize: 15 },
 
   loginWrap: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, gap: 12 },
-  loginInputWrap: { alignSelf: 'stretch', backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, paddingHorizontal: 16, marginTop: 18 },
   loginInput: { color: C.text, fontSize: 17, minHeight: 50 },
   loginBtn: { alignSelf: 'stretch' },
   authField: { alignSelf: 'stretch', backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, paddingHorizontal: 16 },
@@ -969,14 +1013,14 @@ const s = StyleSheet.create({
 
   profileRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 4, borderTopWidth: 1, borderTopColor: C.border },
   avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  avatarText: { color: C.accentInk, fontSize: 16, fontWeight: '700' },
   profileName: { flex: 1, color: C.text, fontSize: 16 },
-
   badge: { color: C.muted, fontSize: 12, fontWeight: '700', backgroundColor: C.surface2, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, overflow: 'hidden' },
-  badgePro: { color: '#fff', backgroundColor: C.accent },
+  badgePro: { color: C.goldInk, backgroundColor: C.gold },
+
   setList: { padding: 16, gap: 14 },
   card: { backgroundColor: C.surface, borderRadius: 18, borderWidth: 1, borderColor: C.border, padding: 16, gap: 8 },
-  cardPro: { borderColor: C.accent },
+  cardPro: { borderColor: C.gold },
   cardTitle: { color: C.text, fontSize: 17, fontWeight: '700' },
   cardHint: { color: C.muted, fontSize: 13 },
   profileRow2: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -990,7 +1034,7 @@ const s = StyleSheet.create({
   ghostBtn: { alignItems: 'center', paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border },
   ghostText: { color: C.text, fontSize: 16 },
 
-  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingBottom: 28, paddingTop: 10 },
   grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, marginBottom: 10 },
   sheetRow: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 16, paddingHorizontal: 8 },
