@@ -8,6 +8,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { askGemini } from './gemini';
 import { BUY_URL } from './config';
@@ -17,8 +18,8 @@ const API_KEY = 'AQ.Ab8RN6KdZxec7Bnx57y36WIBp3oWc0u6UL_j6xIZ96Av-7aumw';
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const CHATS = 'chats_v2';
 const OLD_HISTORY = 'chat_history';
-const FREE_DAILY = 15;
-const PREMIUM_DAILY = 300;
+const FREE_DAILY = 50;
+const PREMIUM_DAILY = 500;
 
 const MAX_BASE64 = 17 * 1024 * 1024;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
@@ -93,7 +94,7 @@ const inline = (str) =>
 function RichText({ text }) {
   const parts = String(text).split('```');
   return (
-    <View style={s.botBody}>
+    <View style={s.rich}>
       {parts.map((part, i) => {
         if (i % 2 === 1) {
           const nl = part.indexOf('\n');
@@ -109,7 +110,23 @@ function RichText({ text }) {
           );
         }
         if (!part.trim()) return null;
-        return <Text key={i} style={s.botText} selectable>{inline(part.trim())}</Text>;
+        const lines = part.trim().split('\n');
+        return (
+          <Text key={i} style={s.botText} selectable>
+            {lines.map((ln, k) => {
+              const h = ln.match(/^#{1,4}\s+(.*)$/);
+              const b = ln.match(/^\s*[-*]\s+(.*)$/);
+              const node = h ? (
+                <Text style={s.heading}>{inline(h[1])}</Text>
+              ) : b ? (
+                <Text>{'•  '}{inline(b[1])}</Text>
+              ) : (
+                <Text>{inline(ln)}</Text>
+              );
+              return <Text key={k}>{k > 0 ? '\n' : ''}{node}</Text>;
+            })}
+          </Text>
+        );
       })}
     </View>
   );
@@ -146,6 +163,7 @@ function Main() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState({ premium: false, used: 0, limit: FREE_DAILY, until: null });
   const [settings, setSettings] = useState(false);
+  const [copied, setCopied] = useState(null);
   const [codeInput, setCodeInput] = useState('');
   const progress = useRef(new Animated.Value(0)).current;
   const list = useRef(null);
@@ -436,6 +454,14 @@ function Main() {
     }
   };
 
+  const copyText = async (t) => {
+    try {
+      await Clipboard.setStringAsync(t);
+      setCopied(t);
+      setTimeout(() => setCopied(null), 1500);
+    } catch (e) {}
+  };
+
   const choose = (fn) => {
     setSheet(false);
     setTimeout(fn, Platform.OS === 'ios' ? 600 : 250);
@@ -487,7 +513,7 @@ function Main() {
       upsert(id, () => base);
       setInput(text);
       setFile(sentFile);
-      Alert.alert('Қате', e.message);
+      Alert.alert('Қате', /Network request failed/i.test(e.message) ? 'Интернет байланысы жоқ. Тексеріп, қайта көріңіз' : e.message);
     } finally {
       setLoading(false);
     }
@@ -516,7 +542,12 @@ function Main() {
     return (
       <View style={s.botRow}>
         <Image source={require('./assets/dux-icon.png')} style={s.botAvatar} />
-        <RichText text={item.text} />
+        <View style={s.botBody}>
+          <RichText text={item.text} />
+          <TouchableOpacity onPress={() => copyText(item.text)} hitSlop={10} style={s.copyBtn}>
+            <Ionicons name={copied === item.text ? 'checkmark' : 'copy-outline'} size={17} color={C.muted} />
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
@@ -883,7 +914,10 @@ const s = StyleSheet.create({
 
   botRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', paddingRight: 12 },
   botAvatar: { width: 28, height: 28, borderRadius: 8, marginTop: 2 },
-  botBody: { flex: 1, gap: 10 },
+  botBody: { flex: 1, gap: 6 },
+  rich: { gap: 10 },
+  heading: { fontWeight: '700', fontSize: 17 },
+  copyBtn: { alignSelf: 'flex-start', padding: 2 },
   botText: { color: C.text, fontSize: 16, lineHeight: 24 },
   bold: { fontWeight: '700' },
   inlineCode: { fontFamily: MONO, backgroundColor: C.surface2, color: '#ffb86c' },

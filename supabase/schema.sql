@@ -78,7 +78,7 @@ begin
   return json_build_object(
     'premium', v_prem,
     'used', coalesce(v_used, 0),
-    'limit', case when v_prem then 300 else 15 end,
+    'limit', case when v_prem then 500 else 50 end,
     'until', case when v_prem then v_until end
   );
 end $$;
@@ -98,7 +98,7 @@ begin
   insert into public.profiles (id) values (v_uid) on conflict do nothing;
   select plan, premium_until into v_plan, v_until from public.profiles where id = v_uid;
   v_prem := coalesce(v_plan = 'premium' and (v_until is null or v_until > now()), false);
-  v_lim := case when v_prem then 300 else 15 end;
+  v_lim := case when v_prem then 500 else 50 end;
   insert into public.usage (user_id, day, count) values (v_uid, public.today_kz(), 0) on conflict do nothing;
   update public.usage u set count = u.count + 1
     where u.user_id = v_uid and u.day = public.today_kz() and u.count < v_lim

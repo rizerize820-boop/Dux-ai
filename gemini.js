@@ -107,7 +107,10 @@ async function askCompat(p, messages, userName, premium) {
 }
 
 // Тегін: мәтін — Cerebras/Groq, содан кейін Gemini (жеңіл). Premium: Gemini (күшті), қате болса — Cerebras/Groq
-export async function askGemini(apiKey, messages, userName, premium) {
+export async function askGemini(apiKey, allMessages, userName, premium) {
+  // Тек соңғы 20 хабарлама жіберіледі: жылдамырақ және квота аз кетеді
+  let messages = allMessages.slice(-20);
+  while (messages.length > 1 && messages[0].role === 'model') messages = messages.slice(1);
   const hasFile = messages.some((m) => m.file && m.file.data);
   const viaCompat = async () => {
     for (const p of PROVIDERS) {
