@@ -28,3 +28,10 @@ eas submit -p ios
 4. **Project Settings → API**: `Project URL` мен `anon public` кілтін `config.js` ішіндегі `SUPABASE_URL` және `SUPABASE_ANON_KEY` жолдарына қойыңыз.
 5. Premium кодтары: SQL Editor-де `insert into public.codes (code, days) values ('DUX-XXXX-1111', 30);`
    (код бір рет қана жұмыс істейді, күндік лимит пен тариф серверде тексеріледі).
+
+
+## Android APK
+
+GitHub Actions → **Build Android APK** → **Run workflow** builds a release APK. The workflow uploads an artifact named `DuxAI-android-apk`.
+
+Before building, add a repository Actions secret named `GEMINI_API_KEY`. Optional Groq access can be configured with `EXPO_PUBLIC_GROQ_API_KEY`. The app supports Қазақша, Русский and English; the selected language is saved on the device and controls the assistant reply language.
