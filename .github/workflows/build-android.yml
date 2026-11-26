@@ -1,0 +1,38 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Create Expo Android project
+        run: |
+          npx create-expo-app@latest app --template blank --no-install
+          cp App.js gemini.js config.js supabase.js app.json eas.json app/
+          cp -r assets app/assets
+          cd app
+          npm install
+          npx expo install expo-image-picker expo-document-picker @react-native-async-storage/async-storage react-native-safe-area-context react-native-screens @expo/vector-icons @supabase/supabase-js react-native-url-polyfill expo-clipboard
+          printf "EXPO_PUBLIC_GEMINI_API_KEY=%s\n" "${{ secrets.GEMINI_API_KEY }}" > .env
+          printf "EXPO_PUBLIC_GROQ_API_KEY=%s\n" "${{ secrets.GROQ_API_KEY }}" >> .env
+      - name: Generate Android project
+        working-directory: app
+        run: npx expo prebuild --platform android --non-interactive
+      - name: Build release APK
+        working-directory: app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DuxAI-android-apk
+          path: app/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
