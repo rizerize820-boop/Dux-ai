@@ -14,7 +14,7 @@ import { askGemini } from './gemini';
 import { BUY_URL } from './config';
 import { supabase, configured } from './supabase';
 
-const API_KEY = 'AQ.Ab8RN6KdZxec7Bnx57y36WIBp3oWc0u6UL_j6xIZ96Av-7aumw';
+const API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const CHATS = 'chats_v2';
 const OLD_HISTORY = 'chat_history';
@@ -629,7 +629,7 @@ function Main() {
         <Text style={s.hint}>{mode === 'up' ? tr('Жаңа аккаунт жасау', 'Создать аккаунт', 'Create account') : tr('Аккаунтқа кіру', 'Войти в аккаунт', 'Sign in')}</Text>
         {!configured && (
           <Text style={[s.hint, { color: C.danger }]}>
-            Supabase бапталмаған: config.js ішіне SUPABASE_URL және SUPABASE_ANON_KEY қойыңыз
+            {tr('Supabase бапталмаған: config.js ішіне SUPABASE_URL және SUPABASE_ANON_KEY қойыңыз', 'Supabase не настроен: укажите SUPABASE_URL и SUPABASE_ANON_KEY в config.js', 'Supabase is not configured: set SUPABASE_URL and SUPABASE_ANON_KEY in config.js')}
           </Text>
         )}
         {mode === 'up' && (
@@ -638,7 +638,7 @@ function Main() {
               style={s.loginInput}
               value={nameInput}
               onChangeText={setNameInput}
-              placeholder="Атыңыз"
+              placeholder={tr('Атыңыз', 'Ваше имя', 'Your name')}
               placeholderTextColor={C.muted}
               maxLength={30}
             />
@@ -661,7 +661,7 @@ function Main() {
             style={s.loginInput}
             value={passInput}
             onChangeText={setPassInput}
-            placeholder="Құпиясөз (кемінде 6 таңба)"
+            placeholder={tr('Құпиясөз (кемінде 6 таңба)', 'Пароль (не менее 6 символов)', 'Password (at least 6 characters)')}
             placeholderTextColor={C.muted}
             secureTextEntry
             autoCapitalize="none"
@@ -702,8 +702,8 @@ function Main() {
           ListEmptyComponent={
             <View style={s.empty}>
               <Image source={require('./assets/dux-icon.png')} style={s.logo} />
-              <Text style={s.hello}>Сәлем, {profile ? profile.name : ''}</Text>
-              <Text style={s.hint}>Сұрақ қойыңыз немесе фото, видео, файл жіберіңіз</Text>
+              <Text style={s.hello}>{tr('Сәлем, ', 'Привет, ', 'Hello, ')}{profile ? profile.name : ''}</Text>
+              <Text style={s.hint}>{tr('Сұрақ қойыңыз немесе фото, видео, файл жіберіңіз', 'Задайте вопрос или отправьте фото, видео или файл', 'Ask a question or send a photo, video, or file')}</Text>
               <View style={s.chips}>
                 {SUGGESTIONS[language].map((x) => (
                   <TouchableOpacity key={x.t} style={s.chip} onPress={() => setInput(x.t)}>
@@ -732,7 +732,7 @@ function Main() {
             {picking ? (
               <>
                 <ActivityIndicator color={C.accent} />
-                <Text style={s.previewName}>Файл дайындалуда...</Text>
+                <Text style={s.previewName}>{tr('Файл дайындалуда...', 'Подготовка файла...', 'Preparing file...')}</Text>
               </>
             ) : (
               <>
@@ -756,7 +756,7 @@ function Main() {
               value={input}
               onChangeText={setInput}
               multiline
-              placeholder="Хабарлама жазыңыз..."
+              placeholder={tr('Хабарлама жазыңыз...', 'Напишите сообщение...', 'Write a message...')}
               placeholderTextColor={C.muted}
             />
             <TouchableOpacity
@@ -799,15 +799,15 @@ function Main() {
 
             <TouchableOpacity style={s.newBtn} onPress={newChat} disabled={loading}>
               <Ionicons name="add" size={22} color="#fff" />
-              <Text style={s.newBtnText}>Жаңа чат</Text>
+              <Text style={s.newBtnText}>{tr('Жаңа чат', 'Новый чат', 'New chat')}</Text>
             </TouchableOpacity>
 
-            <Text style={s.section}>Соңғы чаттар</Text>
+            <Text style={s.section}>{tr('Соңғы чаттар', 'Последние чаты', 'Recent chats')}</Text>
             <FlatList
               data={chats}
               keyExtractor={(c) => c.id}
               style={s.flex}
-              ListEmptyComponent={<Text style={s.noChats}>Әзірше чат жоқ</Text>}
+              ListEmptyComponent={<Text style={s.noChats}>{tr('Әзірше чат жоқ', 'Пока нет чатов', 'No chats yet')}</Text>}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[s.chatItem, item.id === activeId && s.chatItemActive]}
@@ -852,15 +852,15 @@ function Main() {
             <View style={s.grabber} />
             <TouchableOpacity style={s.sheetRow} onPress={() => choose(() => pickMedia(true))}>
               <Ionicons name="camera-outline" size={24} color={C.text} />
-              <Text style={s.sheetText}>Камера</Text>
+              <Text style={s.sheetText}>{tr('Камера', 'Камера', 'Camera')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.sheetRow} onPress={() => choose(() => pickMedia(false))}>
               <Ionicons name="images-outline" size={24} color={C.text} />
-              <Text style={s.sheetText}>Галерея (фото, видео)</Text>
+              <Text style={s.sheetText}>{tr('Галерея (фото, видео)', 'Галерея (фото, видео)', 'Gallery (photos, videos)')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.sheetRow} onPress={() => choose(pickDocument)}>
               <Ionicons name="document-outline" size={24} color={C.text} />
-              <Text style={s.sheetText}>Файл (PDF, TXT)</Text>
+              <Text style={s.sheetText}>{tr('Файл (PDF, TXT)', 'Файл (PDF, TXT)', 'File (PDF, TXT)')}</Text>
             </TouchableOpacity>
           </Pressable>
         </Pressable>
@@ -887,7 +887,7 @@ function Main() {
               </View>
 
               <View style={s.card}>
-                <Text style={s.cardTitle}>${tr('Тіл / Язык / Language', 'Язык', 'Language')}</Text>
+                <Text style={s.cardTitle}>{tr('Тіл / Язык / Language', 'Язык', 'Language')}</Text>
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
                   {[
                     { code: 'kk', label: 'Қазақша' },
@@ -906,12 +906,12 @@ function Main() {
               </View>
 
               <View style={s.card}>
-                <Text style={s.cardTitle}>Бүгінгі қолдану</Text>
+                <Text style={s.cardTitle}>{tr('Бүгінгі қолдану', 'Использование сегодня', 'Usage today')}</Text>
                 <Text style={s.usageNum}>{used} / {limit}</Text>
                 <View style={s.bar2}>
                   <View style={[s.bar2Fill, { width: Math.min(100, (used / limit) * 100) + '%', backgroundColor: used / limit > 0.9 ? C.danger : premium ? C.gold : C.accent }]} />
                 </View>
-                <Text style={s.cardHint}>Лимит әр күні түнгі 00:00-де жаңарады</Text>
+                <Text style={s.cardHint}>{tr('Лимит әр күні түнгі 00:00-де жаңарады', 'Лимит обновляется каждый день в 00:00', 'The limit resets daily at 00:00')}</Text>
               </View>
 
               {!premium ? (
@@ -952,7 +952,7 @@ function Main() {
               )}
 
               <TouchableOpacity style={s.ghostBtn} onPress={clearAll}>
-                <Text style={[s.ghostText, { color: C.danger }]}>Барлық чатты өшіру</Text>
+                <Text style={[s.ghostText, { color: C.danger }]}>{tr('Барлық чатты өшіру', 'Удалить все чаты', 'Delete all chats')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.ghostBtn}
@@ -961,7 +961,7 @@ function Main() {
                   setTimeout(logout, 300);
                 }}
               >
-                <Text style={s.ghostText}>Аккаунттан шығу</Text>
+                <Text style={s.ghostText}>{tr('Аккаунттан шығу', 'Выйти из аккаунта', 'Sign out')}</Text>
               </TouchableOpacity>
             </ScrollView>
           </SafeAreaView>
