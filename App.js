@@ -10,21 +10,16 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { askGemini } from './gemini';
-import { BUY_URL, PREMIUM_CODES } from './config';
+import { BUY_URL } from './config';
+import { supabase, configured } from './supabase';
 
 const API_KEY = 'AQ.Ab8RN6KdZxec7Bnx57y36WIBp3oWc0u6UL_j6xIZ96Av-7aumw';
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const CHATS = 'chats_v2';
 const OLD_HISTORY = 'chat_history';
-const PROFILE = 'profile_v1';
-const PLAN = 'plan_v1';
-const USAGE = 'usage_v1';
 const FREE_DAILY = 15;
 const PREMIUM_DAILY = 300;
-const todayKey = () => {
-  const d = new Date();
-  return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
-};
+
 const MAX_BASE64 = 17 * 1024 * 1024;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
 const DRAWER_W = Math.min(330, Dimensions.get('window').width * 0.84);
@@ -142,51 +137,96 @@ function Main() {
   const [file, setFile] = useState(null);
   const [sheet, setSheet] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [profile, setProfile] = useState(null);
+  const [session, setSession] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [mode, setMode] = useState('in');
   const [nameInput, setNameInput] = useState('');
-  const [premium, setPremium] = useState(false);
-  const [usage, setUsage] = useState({ day: todayKey(), count: 0 });
+  const [emailInput, setEmailInput] = useState('');
+  const [passInput, setPassInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState({ premium: false, used: 0, limit: FREE_DAILY, until: null });
   const [settings, setSettings] = useState(false);
   const [codeInput, setCodeInput] = useState('');
   const progress = useRef(new Animated.Value(0)).current;
   const list = useRef(null);
+  const chatsOwner = useRef(null);
 
   const active = chats.find((c) => c.id === activeId);
   const messages = active ? active.messages : [];
-  const used = usage.day === todayKey() ? usage.count : 0;
-  const limit = premium ? PREMIUM_DAILY : FREE_DAILY;
+  const premium = status.premium;
+  const used = status.used;
+  const limit = status.limit;
   const left = Math.max(0, limit - used);
+  const uid = session ? session.user.id : null;
+  const profile = session
+    ? { name: (session.user.user_metadata && session.user.user_metadata.name) || session.user.email || 'Қолданушы' }
+    : null;
 
+  // Аккаунт сессиясы (Supabase)
   useEffect(() => {
+    supabase.auth
+      .getSession()
+      .then(({ data }) => setSession(data.session))
+      .catch(() => {})
+      .finally(() => setAuthReady(true));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, sess) => setSession(sess));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // Тариф және бүгінгі қолдану серверден
+  useEffect(() => {
+    if (!uid) {
+      setStatus({ premium: false, used: 0, limit: FREE_DAILY, until: null });
+      return;
+    }
+    supabase.rpc('get_status').then(({ data, error }) => {
+      if (!error && data) setStatus(data);
+    });
+  }, [uid]);
+
+  // Чаттар әр аккаунт үшін құрылғыда бөлек сақталады
+  useEffect(() => {
+    if (!authReady) return;
+    chatsOwner.current = null;
+    setReady(false);
+    setActiveId(null);
+    if (!uid) {
+      setChats([]);
+      setReady(true);
+      return;
+    }
     (async () => {
       try {
-        let saved = JSON.parse((await AsyncStorage.getItem(CHATS)) || 'null');
+        const key = CHATS + '_' + uid;
+        let saved = JSON.parse((await AsyncStorage.getItem(key)) || 'null');
         if (!saved) {
-          const old = JSON.parse((await AsyncStorage.getItem(OLD_HISTORY)) || '[]');
-          const first = old.find((m) => m.role === 'user');
-          saved = old.length
-            ? [{ id: String(Date.now()), title: ((first && first.text) || 'Ескі чат').slice(0, 40), messages: old, updatedAt: Date.now() }]
-            : [];
+          // Бұрынғы (аккаунтсыз) чаттарды бірінші кірген аккаунтқа көшіреміз
+          saved = JSON.parse((await AsyncStorage.getItem(CHATS)) || 'null');
+          if (!saved) {
+            const old = JSON.parse((await AsyncStorage.getItem(OLD_HISTORY)) || '[]');
+            const first = old.find((m) => m.role === 'user');
+            saved = old.length
+              ? [{ id: String(Date.now()), title: ((first && first.text) || 'Ескі чат').slice(0, 40), messages: old, updatedAt: Date.now() }]
+              : [];
+          }
+          AsyncStorage.removeItem(CHATS).catch(() => {});
+          AsyncStorage.removeItem(OLD_HISTORY).catch(() => {});
         }
+        chatsOwner.current = uid;
         setChats(saved);
-        const p = JSON.parse((await AsyncStorage.getItem(PROFILE)) || 'null');
-        if (p && p.name) setProfile(p);
-        if ((await AsyncStorage.getItem(PLAN)) === 'premium') setPremium(true);
-        const u = JSON.parse((await AsyncStorage.getItem(USAGE)) || 'null');
-        if (u && u.day === todayKey()) setUsage(u);
       } catch (e) {
         Alert.alert('Қате', e.message);
       } finally {
         setReady(true);
       }
     })();
-  }, []);
+  }, [uid, authReady]);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !uid || chatsOwner.current !== uid) return;
     const clean = chats.map((c) => ({ ...c, messages: c.messages.map(strip) }));
-    AsyncStorage.setItem(CHATS, JSON.stringify(clean)).catch(() => {});
-  }, [chats, ready]);
+    AsyncStorage.setItem(CHATS + '_' + uid, JSON.stringify(clean)).catch(() => {});
+  }, [chats, ready, uid]);
 
   // Android "артқа" батырмасы ашық менюді жабады
   useEffect(() => {
@@ -255,28 +295,17 @@ function Main() {
     ]);
   };
 
-  const bumpUsage = () =>
-    setUsage((prev) => {
-      const u = { day: todayKey(), count: (prev.day === todayKey() ? prev.count : 0) + 1 };
-      AsyncStorage.setItem(USAGE, JSON.stringify(u)).catch(() => {});
-      return u;
-    });
-
-  const activate = () => {
-    const code = codeInput.trim().toUpperCase();
-    if (code && PREMIUM_CODES.some((c) => c.toUpperCase() === code)) {
-      setPremium(true);
-      AsyncStorage.setItem(PLAN, 'premium').catch(() => {});
-      setCodeInput('');
-      Alert.alert('Premium қосылды', 'Рақмет! Енді күніне ' + PREMIUM_DAILY + ' сұрақ және ең күшті модель.');
-    } else {
-      Alert.alert('Код дұрыс емес', 'Кодты тексеріп, қайта енгізіңіз');
+  const activate = async () => {
+    const code = codeInput.trim();
+    if (!code) return;
+    const { data, error } = await supabase.rpc('redeem_code', { p_code: code });
+    if (error || !data) {
+      Alert.alert('Код дұрыс емес', 'Код қате немесе бұрын қолданылған');
+      return;
     }
-  };
-
-  const dropPremium = () => {
-    setPremium(false);
-    AsyncStorage.removeItem(PLAN).catch(() => {});
+    setStatus(data);
+    setCodeInput('');
+    Alert.alert('Premium қосылды', 'Рақмет! Енді күніне ' + PREMIUM_DAILY + ' сұрақ және ең күшті модель.');
   };
 
   const clearAll = () =>
@@ -292,29 +321,51 @@ function Main() {
       },
     ]);
 
-  const saveProfile = () => {
-    const name = nameInput.trim();
-    if (!name) return;
-    const p = { name: name };
-    setProfile(p);
-    AsyncStorage.setItem(PROFILE, JSON.stringify(p)).catch(() => {});
+  const submitAuth = async () => {
+    const email = emailInput.trim();
+    if (!email || passInput.length < 6) {
+      Alert.alert('Қате', 'Email және кемінде 6 таңбалы құпиясөз енгізіңіз');
+      return;
+    }
+    if (mode === 'up' && !nameInput.trim()) {
+      Alert.alert('Қате', 'Атыңызды жазыңыз');
+      return;
+    }
+    setBusy(true);
+    try {
+      if (mode === 'up') {
+        const { data, error } = await supabase.auth.signUp({
+          email: email,
+          password: passInput,
+          options: { data: { name: nameInput.trim() } },
+        });
+        if (error) throw error;
+        if (!data.session) Alert.alert('Email растаңыз', 'Поштаңызға хат жіберілді. Сілтемені басып, содан кейін кіріңіз.');
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email: email, password: passInput });
+        if (error) throw error;
+      }
+      setPassInput('');
+    } catch (e) {
+      Alert.alert('Қате', e.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const logout = () => {
-    Alert.alert('Аккаунттан шығу?', 'Атыңыз өшіріледі, чаттар құрылғыда қалады', [
+    Alert.alert('Аккаунттан шығу?', 'Чаттар құрылғыда қалады, қайта кіргенде көресіз', [
       { text: 'Бас тарту', style: 'cancel' },
       {
         text: 'Шығу',
         style: 'destructive',
         onPress: () => {
-          AsyncStorage.removeItem(PROFILE).catch(() => {});
+          supabase.auth.signOut().catch(() => {});
           progress.setValue(0);
           setDrawerOpen(false);
           setActiveId(null);
           setFile(null);
           setInput('');
-          setNameInput('');
-          setProfile(null);
         },
       },
     ]);
@@ -393,11 +444,24 @@ function Main() {
   const send = async () => {
     const text = input.trim();
     if ((!text && !file) || loading || picking) return;
-    if (left <= 0) {
+    setLoading(true);
+    let q;
+    try {
+      const { data, error } = await supabase.rpc('consume_request');
+      if (error) throw error;
+      q = data;
+    } catch (e) {
+      setLoading(false);
+      Alert.alert('Қате', e.message);
+      return;
+    }
+    setStatus((p) => ({ ...p, used: q.used, limit: q.limit, premium: q.premium }));
+    if (!q.ok) {
+      setLoading(false);
       Alert.alert(
         'Күндік лимит таусылды',
-        premium ? 'Лимит ертең жаңарады' : 'Тегін тарифте күніне ' + FREE_DAILY + ' сұрақ. Premium-ға ауысып, күніне ' + PREMIUM_DAILY + ' сұрақ қойыңыз.',
-        premium
+        q.premium ? 'Лимит ертең жаңарады' : 'Тегін тарифте күніне ' + FREE_DAILY + ' сұрақ. Premium-ға ауысып, күніне ' + PREMIUM_DAILY + ' сұрақ қойыңыз.',
+        q.premium
           ? [{ text: 'OK' }]
           : [{ text: 'Жабу', style: 'cancel' }, { text: 'Premium', onPress: () => setSettings(true) }]
       );
@@ -417,9 +481,8 @@ function Main() {
     setFile(null);
     setLoading(true);
     try {
-      const answer = await askGemini(API_KEY, await withData(next), profile ? profile.name : '', premium);
+      const answer = await askGemini(API_KEY, await withData(next), profile ? profile.name : '', q.premium);
       upsert(id, (m) => m.concat([{ role: 'model', text: answer }]));
-      bumpUsage();
     } catch (e) {
       upsert(id, () => base);
       setInput(text);
@@ -459,33 +522,61 @@ function Main() {
   };
 
   let body;
-  if (!ready) {
+  if (!ready || !authReady) {
     body = <ActivityIndicator style={s.flex} color={C.accent} />;
-  } else if (!profile) {
+  } else if (!session) {
     body = (
       <KeyboardAvoidingView style={[s.flex, s.loginWrap]} behavior="padding">
         <Image source={require('./assets/dux-icon.png')} style={s.logo} />
-        <Text style={s.hello}>Dux AI-ға қош келдіңіз</Text>
-        <Text style={s.hint}>Бастау үшін атыңызды жазыңыз</Text>
-        <View style={s.loginInputWrap}>
+        <Text style={s.hello}>Dux AI</Text>
+        <Text style={s.hint}>{mode === 'up' ? 'Жаңа аккаунт жасау' : 'Аккаунтқа кіру'}</Text>
+        {!configured && (
+          <Text style={[s.hint, { color: C.danger }]}>
+            Supabase бапталмаған: config.js ішіне SUPABASE_URL және SUPABASE_ANON_KEY қойыңыз
+          </Text>
+        )}
+        {mode === 'up' && (
+          <View style={s.authField}>
+            <TextInput
+              style={s.loginInput}
+              value={nameInput}
+              onChangeText={setNameInput}
+              placeholder="Атыңыз"
+              placeholderTextColor={C.muted}
+              maxLength={30}
+            />
+          </View>
+        )}
+        <View style={s.authField}>
           <TextInput
             style={s.loginInput}
-            value={nameInput}
-            onChangeText={setNameInput}
-            placeholder="Атыңыз"
+            value={emailInput}
+            onChangeText={setEmailInput}
+            placeholder="Email"
             placeholderTextColor={C.muted}
-            maxLength={30}
-            autoFocus
-            returnKeyType="done"
-            onSubmitEditing={saveProfile}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
           />
         </View>
-        <TouchableOpacity
-          style={[s.newBtn, s.loginBtn, !nameInput.trim() && s.sendOff]}
-          onPress={saveProfile}
-          disabled={!nameInput.trim()}
-        >
-          <Text style={s.newBtnText}>Жалғастыру</Text>
+        <View style={s.authField}>
+          <TextInput
+            style={s.loginInput}
+            value={passInput}
+            onChangeText={setPassInput}
+            placeholder="Құпиясөз (кемінде 6 таңба)"
+            placeholderTextColor={C.muted}
+            secureTextEntry
+            autoCapitalize="none"
+            returnKeyType="done"
+            onSubmitEditing={submitAuth}
+          />
+        </View>
+        <TouchableOpacity style={[s.newBtn, s.loginBtn, busy && s.sendOff]} onPress={submitAuth} disabled={busy}>
+          {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.newBtnText}>{mode === 'up' ? 'Тіркелу' : 'Кіру'}</Text>}
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setMode(mode === 'up' ? 'in' : 'up')} hitSlop={10}>
+          <Text style={s.authSwitch}>{mode === 'up' ? 'Аккаунт бар ма? Кіру' : 'Аккаунт жоқ па? Тіркелу'}</Text>
         </TouchableOpacity>
       </KeyboardAvoidingView>
     );
@@ -736,9 +827,9 @@ function Main() {
                 <View style={[s.card, s.cardPro]}>
                   <Text style={s.cardTitle}>Premium белсенді</Text>
                   <Text style={s.perk}>Күніне {PREMIUM_DAILY} сұрақ және ең күшті модель қосулы.</Text>
-                  <TouchableOpacity style={s.ghostBtn} onPress={dropPremium}>
-                    <Text style={s.ghostText}>Тегін тарифке қайту</Text>
-                  </TouchableOpacity>
+                  {!!status.until && (
+                    <Text style={s.cardHint}>Мерзімі: {new Date(status.until).toLocaleDateString()}</Text>
+                  )}
                 </View>
               )}
 
@@ -839,6 +930,8 @@ const s = StyleSheet.create({
   loginInputWrap: { alignSelf: 'stretch', backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, paddingHorizontal: 16, marginTop: 18 },
   loginInput: { color: C.text, fontSize: 17, minHeight: 50 },
   loginBtn: { alignSelf: 'stretch' },
+  authField: { alignSelf: 'stretch', backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, paddingHorizontal: 16 },
+  authSwitch: { color: C.accent, fontSize: 15, marginTop: 6 },
 
   profileRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 4, borderTopWidth: 1, borderTopColor: C.border },
   avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },

@@ -6,10 +6,10 @@ TMP="$(mktemp -d)"
 cd "$TMP"
 npx create-expo-app@latest dux-ai --template blank --no-install
 cd dux-ai
-cp "$REPO"/App.js "$REPO"/gemini.js "$REPO"/config.js "$REPO"/app.json "$REPO"/eas.json "$REPO"/.gitignore .
+cp "$REPO"/App.js "$REPO"/gemini.js "$REPO"/config.js "$REPO"/supabase.js "$REPO"/app.json "$REPO"/eas.json "$REPO"/.gitignore .
 rm -rf assets && cp -r "$REPO"/assets ./assets
 npm install
-npx expo install expo-image-picker expo-document-picker @react-native-async-storage/async-storage react-native-safe-area-context react-native-screens @expo/vector-icons
+npx expo install expo-image-picker expo-document-picker @react-native-async-storage/async-storage react-native-safe-area-context react-native-screens @expo/vector-icons @supabase/supabase-js react-native-url-polyfill
 [ -f "$REPO/.env" ] && cp "$REPO/.env" .env || cp "$REPO/.env.example" .env
 echo
 echo "Дайын: $(pwd)"

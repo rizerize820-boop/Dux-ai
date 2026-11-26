@@ -20,3 +20,11 @@ eas submit -p ios
 
 ## Қауіпсіздік
 Қолданбаға салынған кілтті сынап алуға болады. Жария шығарудан бұрын сұрауларды өз серверіңіз (прокси) арқылы жіберіңіз.
+
+## Аккаунттар базасы (Supabase, тегін)
+1. supabase.com → New project (карта қажет емес). Жоба дайын болғанша 1–2 минут күтіңіз.
+2. **SQL Editor → New query**: `supabase/schema.sql` мазмұнын қойып, **Run** басыңыз.
+3. **Authentication → Providers → Email**: қарапайымдық үшін *Confirm email* өшіріңіз.
+4. **Project Settings → API**: `Project URL` мен `anon public` кілтін `config.js` ішіндегі `SUPABASE_URL` және `SUPABASE_ANON_KEY` жолдарына қойыңыз.
+5. Premium кодтары: SQL Editor-де `insert into public.codes (code, days) values ('DUX-XXXX-1111', 30);`
+   (код бір рет қана жұмыс істейді, күндік лимит пен тариф серверде тексеріледі).
