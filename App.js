@@ -14,7 +14,7 @@ import { askGemini } from './gemini';
 import { BUY_URL } from './config';
 import { supabase, configured } from './supabase';
 
-const API_KEY = 'AQ.Ab8RN6KdZxec7Bnx57y36WIBp3oWc0u6UL_j6xIZ96Av-7aumw';
+const API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const CHATS = 'chats_v2';
 const OLD_HISTORY = 'chat_history';
@@ -39,12 +39,26 @@ const C = {
   danger: '#FF6B6B',
 };
 
-const SUGGESTIONS = [
-  { icon: 'earth-outline', t: 'Қазақстан туралы қызықты дерек айт' },
-  { icon: 'document-text-outline', t: 'Мәтінді қысқаша түйіндеп бер' },
-  { icon: 'bulb-outline', t: 'Бизнес-идея ұсын' },
-  { icon: 'code-slash-outline', t: 'Python-да қарапайым бот жазып бер' },
-];
+const SUGGESTIONS = {
+  kk: [
+    { icon: 'earth-outline', t: 'Қазақстан туралы қызықты дерек айт' },
+    { icon: 'document-text-outline', t: 'Мәтінді қысқаша түйіндеп бер' },
+    { icon: 'bulb-outline', t: 'Бизнес-идея ұсын' },
+    { icon: 'code-slash-outline', t: 'Python-да қарапайым бот жазып бер' },
+  ],
+  ru: [
+    { icon: 'earth-outline', t: 'Расскажи интересный факт о Казахстане' },
+    { icon: 'document-text-outline', t: 'Кратко перескажи этот текст' },
+    { icon: 'bulb-outline', t: 'Предложи бизнес-идею' },
+    { icon: 'code-slash-outline', t: 'Напиши простого бота на Python' },
+  ],
+  en: [
+    { icon: 'earth-outline', t: 'Tell me an interesting fact about Kazakhstan' },
+    { icon: 'document-text-outline', t: 'Summarize this text briefly' },
+    { icon: 'bulb-outline', t: 'Suggest a business idea' },
+    { icon: 'code-slash-outline', t: 'Write a simple Python bot' },
+  ],
+};
 
 // Файл мазмұны (data) жадта ғана тұрады, тарихқа аты мен түрі сақталады
 const strip = (m) =>
@@ -182,6 +196,9 @@ function FileThumb({ file, size }) {
 
 function Main() {
   const [chats, setChats] = useState([]);
+  const [language, setLanguage] = useState('kk');
+  const [languageReady, setLanguageReady] = useState(false);
+  const tr = (kk, ru, en) => language === 'ru' ? ru : language === 'en' ? en : kk;
   const [activeId, setActiveId] = useState(null);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -205,6 +222,19 @@ function Main() {
   const list = useRef(null);
   const chatsOwner = useRef(null);
 
+  useEffect(() => {
+    AsyncStorage.getItem('app_language')
+      .then((saved) => {
+        if (saved === 'kk' || saved === 'ru' || saved === 'en') setLanguage(saved);
+      })
+      .catch(() => {})
+      .finally(() => setLanguageReady(true));
+  }, []);
+
+  useEffect(() => {
+    if (languageReady) AsyncStorage.setItem('app_language', language).catch(() => {});
+  }, [language, languageReady]);
+
   const active = chats.find((c) => c.id === activeId);
   const messages = active ? active.messages : [];
   const premium = status.premium;
@@ -213,7 +243,7 @@ function Main() {
   const left = Math.max(0, limit - used);
   const uid = session ? session.user.id : null;
   const profile = session
-    ? { name: (session.user.user_metadata && session.user.user_metadata.name) || session.user.email || 'Қолданушы' }
+    ? { name: (session.user.user_metadata && session.user.user_metadata.name) || session.user.email || tr('Қолданушы', 'Пользователь', 'User') }
     : null;
 
   // Аккаунт сессиясы (Supabase)
@@ -269,7 +299,7 @@ function Main() {
         chatsOwner.current = uid;
         setChats(saved);
       } catch (e) {
-        Alert.alert('Қате', e.message);
+        Alert.alert(tr('Қате', 'Ошибка', 'Error'), e.message);
       } finally {
         setReady(true);
       }
@@ -301,7 +331,7 @@ function Main() {
       const msgs = mutate(current.messages);
       if (!msgs.length) return prev.filter((c) => c.id !== id);
       const first = msgs.find((m) => m.role === 'user');
-      const title = (first && (first.text || (first.file && first.file.name))) || 'Жаңа чат';
+      const title = (first && (first.text || (first.file && first.file.name))) || tr('Жаңа чат', 'Новый чат', 'New chat');
       const updated = { id: id, title: title.slice(0, 40), messages: msgs, updatedAt: Date.now() };
       return [updated].concat(prev.filter((c) => c.id !== id));
     });
@@ -336,10 +366,10 @@ function Main() {
 
   const deleteChat = (id) => {
     if (loading) return;
-    Alert.alert('Чатты өшіру?', 'Бұл чат жойылады', [
-      { text: 'Бас тарту', style: 'cancel' },
+    Alert.alert(tr('Чатты өшіру?', 'Удалить чат?', 'Delete chat?'), tr('Бұл чат жойылады', 'Этот чат будет удалён', 'This chat will be deleted'), [
+      { text: tr('Бас тарту', 'Отмена', 'Cancel'), style: 'cancel' },
       {
-        text: 'Өшіру',
+        text: tr('Өшіру', 'Удалить', 'Delete'),
         style: 'destructive',
         onPress: () => {
           setChats((prev) => prev.filter((c) => c.id !== id));
@@ -354,19 +384,19 @@ function Main() {
     if (!code) return;
     const { data, error } = await supabase.rpc('redeem_code', { p_code: code });
     if (error || !data) {
-      Alert.alert('Код дұрыс емес', 'Код қате немесе бұрын қолданылған');
+      Alert.alert(tr('Код дұрыс емес', 'Неверный код', 'Invalid code'), tr('Код қате немесе бұрын қолданылған', 'Код неверный или уже использован', 'The code is invalid or has already been used'));
       return;
     }
     setStatus(data);
     setCodeInput('');
-    Alert.alert('Premium қосылды', 'Рақмет! Енді күніне ' + PREMIUM_DAILY + ' сұрақ және ең күшті модель.');
+    Alert.alert(tr('Premium қосылды', 'Premium активирован', 'Premium activated'), tr('Рақмет! Енді күніне ' + PREMIUM_DAILY + ' сұрақ және ең күшті модель.', 'Спасибо! Теперь доступно ' + PREMIUM_DAILY + ' вопросов в день и самая мощная модель.', 'Thanks! You now have ' + PREMIUM_DAILY + ' questions per day and the most powerful model.'));
   };
 
   const clearAll = () =>
-    Alert.alert('Барлық чатты өшіру?', 'Бұл әрекетті қайтару мүмкін емес', [
-      { text: 'Бас тарту', style: 'cancel' },
+    Alert.alert(tr('Барлық чатты өшіру?', 'Удалить все чаты?', 'Delete all chats?'), tr('Бұл әрекетті қайтару мүмкін емес', 'Это действие нельзя отменить', 'This action cannot be undone'), [
+      { text: tr('Бас тарту', 'Отмена', 'Cancel'), style: 'cancel' },
       {
-        text: 'Өшіру',
+        text: tr('Өшіру', 'Удалить', 'Delete'),
         style: 'destructive',
         onPress: () => {
           setChats([]);
@@ -378,11 +408,11 @@ function Main() {
   const submitAuth = async () => {
     const email = emailInput.trim();
     if (!email || passInput.length < 6) {
-      Alert.alert('Қате', 'Email және кемінде 6 таңбалы құпиясөз енгізіңіз');
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), tr(tr('Email және кемінде 6 таңбалы құпиясөз енгізіңіз', 'Введите email и пароль не короче 6 символов', 'Enter an email and a password of at least 6 characters'), 'Введите email и пароль не короче 6 символов', 'Enter an email and a password of at least 6 characters'));
       return;
     }
     if (mode === 'up' && !nameInput.trim()) {
-      Alert.alert('Қате', 'Атыңызды жазыңыз');
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), tr('Атыңызды жазыңыз', 'Введите имя', 'Enter your name'));
       return;
     }
     setBusy(true);
@@ -394,24 +424,24 @@ function Main() {
           options: { data: { name: nameInput.trim() } },
         });
         if (error) throw error;
-        if (!data.session) Alert.alert('Email растаңыз', 'Поштаңызға хат жіберілді. Сілтемені басып, содан кейін кіріңіз.');
+        if (!data.session) Alert.alert(tr('Email растаңыз', 'Подтвердите email', 'Verify email'), tr('Поштаңызға хат жіберілді. Сілтемені басып, содан кейін кіріңіз.', 'На вашу почту отправлено письмо. Перейдите по ссылке, затем войдите.', 'A confirmation email was sent. Open the link, then sign in.'));
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: email, password: passInput });
         if (error) throw error;
       }
       setPassInput('');
     } catch (e) {
-      Alert.alert('Қате', e.message);
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), e.message);
     } finally {
       setBusy(false);
     }
   };
 
   const logout = () => {
-    Alert.alert('Аккаунттан шығу?', 'Чаттар құрылғыда қалады, қайта кіргенде көресіз', [
-      { text: 'Бас тарту', style: 'cancel' },
+    Alert.alert(tr('Аккаунттан шығу?', 'Выйти из аккаунта?', 'Sign out?'), tr('Чаттар құрылғыда қалады, қайта кіргенде көресіз', 'Чаты останутся на устройстве и будут доступны после входа', 'Your chats will stay on this device and appear when you sign in again'), [
+      { text: tr('Бас тарту', 'Отмена', 'Cancel'), style: 'cancel' },
       {
-        text: 'Шығу',
+        text: tr('Шығу', 'Выйти', 'Sign out'),
         style: 'destructive',
         onPress: () => {
           supabase.auth.signOut().catch(() => {});
@@ -427,7 +457,7 @@ function Main() {
 
   const attach = (picked) => {
     if (picked.data.length > MAX_BASE64) {
-      Alert.alert('Файл тым үлкен', 'Кішірек файл таңдаңыз (шамамен 12 МБ дейін)');
+      Alert.alert(tr('Файл тым үлкен', 'Файл слишком большой', 'File is too large'), tr('Кішірек файл таңдаңыз (шамамен 12 МБ дейін)', 'Выберите файл поменьше (примерно до 12 МБ)', 'Choose a smaller file (about 12 MB max)'));
       return;
     }
     setFile(picked);
@@ -437,7 +467,7 @@ function Main() {
     try {
       if (camera) {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
-        if (!perm.granted) return Alert.alert('Камераға рұқсат керек');
+        if (!perm.granted) return Alert.alert(tr('Камераға рұқсат керек', 'Нужно разрешение на камеру', 'Camera permission is required'));
       }
       const open = camera ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
       const result = await open({
@@ -449,7 +479,7 @@ function Main() {
       if (result.canceled) return;
       const a = result.assets[0];
       if (a.fileSize && a.fileSize > MAX_FILE_BYTES) {
-        Alert.alert('Файл тым үлкен', 'Кішірек файл немесе қысқа видео таңдаңыз (шамамен 12 МБ дейін)');
+        Alert.alert(tr('Файл тым үлкен', 'Файл слишком большой', 'File is too large'), tr('Кішірек файл немесе қысқа видео таңдаңыз (шамамен 12 МБ дейін)', 'Выберите файл поменьше или короткое видео (примерно до 12 МБ)', 'Choose a smaller file or a shorter video (about 12 MB max)'));
         return;
       }
       const video = a.type === 'video' || (a.mimeType || '').indexOf('video/') === 0;
@@ -462,7 +492,7 @@ function Main() {
         data: data,
       });
     } catch (e) {
-      Alert.alert('Қате', e.message);
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), e.message);
     } finally {
       setPicking(false);
     }
@@ -477,14 +507,14 @@ function Main() {
       if (result.canceled) return;
       const a = result.assets[0];
       if (a.size && a.size > MAX_FILE_BYTES) {
-        Alert.alert('Файл тым үлкен', 'Кішірек файл таңдаңыз (шамамен 12 МБ дейін)');
+        Alert.alert(tr('Файл тым үлкен', 'Файл слишком большой', 'File is too large'), tr('Кішірек файл таңдаңыз (шамамен 12 МБ дейін)', 'Выберите файл поменьше (примерно до 12 МБ)', 'Choose a smaller file (about 12 MB max)'));
         return;
       }
       setPicking(true);
       const data = await readBase64(a.uri);
       attach({ name: a.name, uri: a.uri, mimeType: a.mimeType || 'application/pdf', data: data });
     } catch (e) {
-      Alert.alert('Қате', e.message);
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), e.message);
     } finally {
       setPicking(false);
     }
@@ -514,18 +544,18 @@ function Main() {
       q = data;
     } catch (e) {
       setLoading(false);
-      Alert.alert('Қате', e.message);
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), e.message);
       return;
     }
     setStatus((p) => ({ ...p, used: q.used, limit: q.limit, premium: q.premium }));
     if (!q.ok) {
       setLoading(false);
       Alert.alert(
-        'Күндік лимит таусылды',
-        q.premium ? 'Лимит ертең жаңарады' : 'Тегін тарифте күніне ' + FREE_DAILY + ' сұрақ. Premium-ға ауысып, күніне ' + PREMIUM_DAILY + ' сұрақ қойыңыз.',
+        tr('Күндік лимит таусылды', 'Дневной лимит исчерпан', 'Daily limit reached'),
+        q.premium ? tr('Лимит ертең жаңарады', 'Лимит обновится завтра', 'The limit resets tomorrow') : tr('Тегін тарифте күніне ' + FREE_DAILY + ' сұрақ. Premium-ға ауысып, күніне ' + PREMIUM_DAILY + ' сұрақ қойыңыз.', 'Бесплатно доступно ' + FREE_DAILY + ' вопросов в день. Перейдите на Premium, чтобы задавать до ' + PREMIUM_DAILY + ' вопросов.', 'The free plan includes ' + FREE_DAILY + ' questions per day. Upgrade to Premium for ' + PREMIUM_DAILY + ' questions.'),
         q.premium
           ? [{ text: 'OK' }]
-          : [{ text: 'Жабу', style: 'cancel' }, { text: 'Premium', onPress: () => setSettings(true) }]
+          : [{ text: tr('Жабу', 'Закрыть', 'Close'), style: 'cancel' }, { text: 'Premium', onPress: () => setSettings(true) }]
       );
       return;
     }
@@ -543,13 +573,13 @@ function Main() {
     setFile(null);
     setLoading(true);
     try {
-      const answer = await askGemini(API_KEY, await withData(next), profile ? profile.name : '', q.premium);
+      const answer = await askGemini(API_KEY, await withData(next), profile ? profile.name : '', q.premium, language);
       upsert(id, (m) => m.concat([{ role: 'model', text: answer }]));
     } catch (e) {
       upsert(id, () => base);
       setInput(text);
       setFile(sentFile);
-      Alert.alert('Қате', /Network request failed/i.test(e.message) ? 'Интернет байланысы жоқ. Тексеріп, қайта көріңіз' : e.message);
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), /Network request failed/i.test(e.message) ? tr('Интернет байланысы жоқ. Тексеріп, қайта көріңіз', 'Нет подключения к интернету. Проверьте связь и попробуйте снова', 'No internet connection. Check your connection and try again') : e.message);
     } finally {
       setLoading(false);
     }
@@ -596,10 +626,10 @@ function Main() {
       <KeyboardAvoidingView style={[s.flex, s.loginWrap]} behavior="padding">
         <Image source={require('./assets/dux-icon.png')} style={s.logo} />
         <Text style={s.hello}>Dux AI</Text>
-        <Text style={s.hint}>{mode === 'up' ? 'Жаңа аккаунт жасау' : 'Аккаунтқа кіру'}</Text>
+        <Text style={s.hint}>{mode === 'up' ? tr('Жаңа аккаунт жасау', 'Создать аккаунт', 'Create account') : tr('Аккаунтқа кіру', 'Войти в аккаунт', 'Sign in')}</Text>
         {!configured && (
           <Text style={[s.hint, { color: C.danger }]}>
-            Supabase бапталмаған: config.js ішіне SUPABASE_URL және SUPABASE_ANON_KEY қойыңыз
+            {tr('Supabase бапталмаған: config.js ішіне SUPABASE_URL және SUPABASE_ANON_KEY қойыңыз', 'Supabase не настроен: укажите SUPABASE_URL и SUPABASE_ANON_KEY в config.js', 'Supabase is not configured: set SUPABASE_URL and SUPABASE_ANON_KEY in config.js')}
           </Text>
         )}
         {mode === 'up' && (
@@ -608,7 +638,7 @@ function Main() {
               style={s.loginInput}
               value={nameInput}
               onChangeText={setNameInput}
-              placeholder="Атыңыз"
+              placeholder={tr('Атыңыз', 'Ваше имя', 'Your name')}
               placeholderTextColor={C.muted}
               maxLength={30}
             />
@@ -631,7 +661,7 @@ function Main() {
             style={s.loginInput}
             value={passInput}
             onChangeText={setPassInput}
-            placeholder="Құпиясөз (кемінде 6 таңба)"
+            placeholder={tr('Құпиясөз (кемінде 6 таңба)', 'Пароль (не менее 6 символов)', 'Password (at least 6 characters)')}
             placeholderTextColor={C.muted}
             secureTextEntry
             autoCapitalize="none"
@@ -640,11 +670,22 @@ function Main() {
           />
         </View>
         <TouchableOpacity style={[s.newBtn, s.loginBtn, busy && s.sendOff]} onPress={submitAuth} disabled={busy}>
-          {busy ? <ActivityIndicator color={C.accentInk} /> : <Text style={s.newBtnText}>{mode === 'up' ? 'Тіркелу' : 'Кіру'}</Text>}
+          {busy ? <ActivityIndicator color={C.accentInk} /> : <Text style={s.newBtnText}>{mode === 'up' ? tr('Тіркелу', 'Зарегистрироваться', 'Sign up') : tr('Кіру', 'Войти', 'Sign in')}</Text>}
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setMode(mode === 'up' ? 'in' : 'up')} hitSlop={10}>
-          <Text style={s.authSwitch}>{mode === 'up' ? 'Аккаунт бар ма? Кіру' : 'Аккаунт жоқ па? Тіркелу'}</Text>
+          <Text style={s.authSwitch}>{mode === 'up' ? tr('Аккаунт бар ма? Кіру', 'Уже есть аккаунт? Войти', 'Already have an account? Sign in') : tr('Аккаунт жоқ па? Тіркелу', 'Нет аккаунта? Зарегистрироваться', 'No account? Sign up')}</Text>
         </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 18 }}>
+          {[
+            { code: 'kk', label: 'Қазақша' },
+            { code: 'ru', label: 'Русский' },
+            { code: 'en', label: 'English' },
+          ].map((item) => (
+            <TouchableOpacity key={item.code} onPress={() => setLanguage(item.code)} style={{ padding: 8 }}>
+              <Text style={{ color: language === item.code ? C.accent : C.muted, fontWeight: '600' }}>{item.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </KeyboardAvoidingView>
     );
   } else {
@@ -672,10 +713,10 @@ function Main() {
           ListEmptyComponent={
             <View style={s.empty}>
               <Image source={require('./assets/dux-icon.png')} style={s.logo} />
-              <Text style={s.hello}>Сәлем, {profile ? profile.name : ''}</Text>
-              <Text style={s.hint}>Сұрақ қойыңыз немесе фото, видео, файл жіберіңіз</Text>
+              <Text style={s.hello}>{tr('Сәлем, ', 'Привет, ', 'Hello, ')}{profile ? profile.name : ''}</Text>
+              <Text style={s.hint}>{tr('Сұрақ қойыңыз немесе фото, видео, файл жіберіңіз', 'Задайте вопрос или отправьте фото, видео или файл', 'Ask a question or send a photo, video, or file')}</Text>
               <View style={s.chips}>
-                {SUGGESTIONS.map((x) => (
+                {SUGGESTIONS[language].map((x) => (
                   <TouchableOpacity key={x.t} style={s.chip} onPress={() => setInput(x.t)}>
                     <View style={s.chipIcon}>
                       <Ionicons name={x.icon} size={20} color={C.accent} />
@@ -702,7 +743,7 @@ function Main() {
             {picking ? (
               <>
                 <ActivityIndicator color={C.accent} />
-                <Text style={s.previewName}>Файл дайындалуда...</Text>
+                <Text style={s.previewName}>{tr('Файл дайындалуда...', 'Подготовка файла...', 'Preparing file...')}</Text>
               </>
             ) : (
               <>
@@ -726,7 +767,7 @@ function Main() {
               value={input}
               onChangeText={setInput}
               multiline
-              placeholder="Хабарлама жазыңыз..."
+              placeholder={tr('Хабарлама жазыңыз...', 'Напишите сообщение...', 'Write a message...')}
               placeholderTextColor={C.muted}
             />
             <TouchableOpacity
@@ -769,15 +810,15 @@ function Main() {
 
             <TouchableOpacity style={s.newBtn} onPress={newChat} disabled={loading}>
               <Ionicons name="add" size={22} color="#fff" />
-              <Text style={s.newBtnText}>Жаңа чат</Text>
+              <Text style={s.newBtnText}>{tr('Жаңа чат', 'Новый чат', 'New chat')}</Text>
             </TouchableOpacity>
 
-            <Text style={s.section}>Соңғы чаттар</Text>
+            <Text style={s.section}>{tr('Соңғы чаттар', 'Последние чаты', 'Recent chats')}</Text>
             <FlatList
               data={chats}
               keyExtractor={(c) => c.id}
               style={s.flex}
-              ListEmptyComponent={<Text style={s.noChats}>Әзірше чат жоқ</Text>}
+              ListEmptyComponent={<Text style={s.noChats}>{tr('Әзірше чат жоқ', 'Пока нет чатов', 'No chats yet')}</Text>}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[s.chatItem, item.id === activeId && s.chatItemActive]}
@@ -822,15 +863,15 @@ function Main() {
             <View style={s.grabber} />
             <TouchableOpacity style={s.sheetRow} onPress={() => choose(() => pickMedia(true))}>
               <Ionicons name="camera-outline" size={24} color={C.text} />
-              <Text style={s.sheetText}>Камера</Text>
+              <Text style={s.sheetText}>{tr('Камера', 'Камера', 'Camera')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.sheetRow} onPress={() => choose(() => pickMedia(false))}>
               <Ionicons name="images-outline" size={24} color={C.text} />
-              <Text style={s.sheetText}>Галерея (фото, видео)</Text>
+              <Text style={s.sheetText}>{tr('Галерея (фото, видео)', 'Галерея (фото, видео)', 'Gallery (photos, videos)')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.sheetRow} onPress={() => choose(pickDocument)}>
               <Ionicons name="document-outline" size={24} color={C.text} />
-              <Text style={s.sheetText}>Файл (PDF, TXT)</Text>
+              <Text style={s.sheetText}>{tr('Файл (PDF, TXT)', 'Файл (PDF, TXT)', 'File (PDF, TXT)')}</Text>
             </TouchableOpacity>
           </Pressable>
         </Pressable>
@@ -840,7 +881,7 @@ function Main() {
           <SafeAreaView style={s.screen}>
             <View style={s.header}>
               <View style={s.iconBtn} />
-              <Text style={s.headerTitle}>Баптаулар</Text>
+              <Text style={s.headerTitle}>{tr('Баптаулар', 'Настройки', 'Settings')}</Text>
               <TouchableOpacity style={s.iconBtn} onPress={() => setSettings(false)}>
                 <Ionicons name="close" size={26} color={C.text} />
               </TouchableOpacity>
@@ -857,24 +898,43 @@ function Main() {
               </View>
 
               <View style={s.card}>
-                <Text style={s.cardTitle}>Бүгінгі қолдану</Text>
+                <Text style={s.cardTitle}>{tr('Тіл / Язык / Language', 'Язык', 'Language')}</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                  {[
+                    { code: 'kk', label: 'Қазақша' },
+                    { code: 'ru', label: 'Русский' },
+                    { code: 'en', label: 'English' },
+                  ].map((item) => (
+                    <TouchableOpacity
+                      key={item.code}
+                      onPress={() => setLanguage(item.code)}
+                      style={[s.codeBtn, { flex: 1, backgroundColor: language === item.code ? C.accent : C.surface2 }]}
+                    >
+                      <Text style={[s.newBtnText, { color: language === item.code ? C.accentInk : C.text }]}>{item.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <View style={s.card}>
+                <Text style={s.cardTitle}>{tr('Бүгінгі қолдану', 'Использование сегодня', 'Usage today')}</Text>
                 <Text style={s.usageNum}>{used} / {limit}</Text>
                 <View style={s.bar2}>
                   <View style={[s.bar2Fill, { width: Math.min(100, (used / limit) * 100) + '%', backgroundColor: used / limit > 0.9 ? C.danger : premium ? C.gold : C.accent }]} />
                 </View>
-                <Text style={s.cardHint}>Лимит әр күні түнгі 00:00-де жаңарады</Text>
+                <Text style={s.cardHint}>{tr('Лимит әр күні түнгі 00:00-де жаңарады', 'Лимит обновляется каждый день в 00:00', 'The limit resets daily at 00:00')}</Text>
               </View>
 
               {!premium ? (
                 <View style={[s.card, s.cardPro]}>
                   <Text style={s.cardTitle}>Dux Premium</Text>
-                  <Text style={s.perk}>• Күніне {PREMIUM_DAILY} сұрақ (тегін: {FREE_DAILY})</Text>
-                  <Text style={s.perk}>• Ең күшті модель: дәл жауап, күрделі код</Text>
-                  <Text style={s.perk}>• Ұзын, толық жауаптар</Text>
-                  <Text style={s.perk}>• Фото мен файлдарды терең талдау</Text>
+                  <Text style={s.perk}>• {tr('Күніне ', 'В день ', 'Per day ')}{PREMIUM_DAILY}{tr(' сұрақ (тегін: ', ' вопросов (бесплатно: ', ' questions (free: ')}{FREE_DAILY})</Text>
+                  <Text style={s.perk}>{tr('• Ең күшті модель: дәл жауап, күрделі код', '• Самая мощная модель: точные ответы и сложный код', '• Most powerful model: accurate answers and complex code')}</Text>
+                  <Text style={s.perk}>{tr('• Ұзын, толық жауаптар', '• Развёрнутые ответы', '• Detailed answers')}</Text>
+                  <Text style={s.perk}>{tr('• Фото мен файлдарды терең талдау', '• Глубокий анализ фото и файлов', '• In-depth photo and file analysis')}</Text>
                   {!!BUY_URL && (
                     <TouchableOpacity style={s.newBtn} onPress={() => Linking.openURL(BUY_URL)}>
-                      <Text style={s.newBtnText}>Premium сатып алу</Text>
+                      <Text style={s.newBtnText}>{tr('Premium сатып алу', 'Купить Premium', 'Buy Premium')}</Text>
                     </TouchableOpacity>
                   )}
                   <View style={s.codeRow}>
@@ -882,7 +942,7 @@ function Main() {
                       style={s.codeInput}
                       value={codeInput}
                       onChangeText={setCodeInput}
-                      placeholder="Белсендіру коды"
+                      placeholder={tr('Белсендіру коды', 'Код активации', 'Activation code')}
                       placeholderTextColor={C.muted}
                       autoCapitalize="characters"
                       autoCorrect={false}
@@ -894,16 +954,16 @@ function Main() {
                 </View>
               ) : (
                 <View style={[s.card, s.cardPro]}>
-                  <Text style={s.cardTitle}>Premium белсенді</Text>
-                  <Text style={s.perk}>Күніне {PREMIUM_DAILY} сұрақ және ең күшті модель қосулы.</Text>
+                  <Text style={s.cardTitle}>{tr('Premium белсенді', 'Premium активен', 'Premium active')}</Text>
+                  <Text style={s.perk}>{tr('Күніне ', 'В день ', 'Per day ')}{PREMIUM_DAILY}{tr(' сұрақ және ең күшті модель қосулы.', ' вопросов и самая мощная модель.', ' questions and the most powerful model.')}</Text>
                   {!!status.until && (
-                    <Text style={s.cardHint}>Мерзімі: {new Date(status.until).toLocaleDateString()}</Text>
+                    <Text style={s.cardHint}>{tr('Мерзімі: ', 'Срок действия: ', 'Expires: ')}{new Date(status.until).toLocaleDateString()}</Text>
                   )}
                 </View>
               )}
 
               <TouchableOpacity style={s.ghostBtn} onPress={clearAll}>
-                <Text style={[s.ghostText, { color: C.danger }]}>Барлық чатты өшіру</Text>
+                <Text style={[s.ghostText, { color: C.danger }]}>{tr('Барлық чатты өшіру', 'Удалить все чаты', 'Delete all chats')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.ghostBtn}
@@ -912,7 +972,7 @@ function Main() {
                   setTimeout(logout, 300);
                 }}
               >
-                <Text style={s.ghostText}>Аккаунттан шығу</Text>
+                <Text style={s.ghostText}>{tr('Аккаунттан шығу', 'Выйти из аккаунта', 'Sign out')}</Text>
               </TouchableOpacity>
             </ScrollView>
           </SafeAreaView>

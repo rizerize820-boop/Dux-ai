@@ -1,6 +1,6 @@
 // Тегін кілттер: cloud.cerebras.ai және console.groq.com (бос қалдырса, сол сервис өткізіледі)
 export const CEREBRAS_KEY = '';
-export const GROQ_KEY = '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';
+export const GROQ_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY || '';
 
 // Supabase: Project Settings → API бөлімінен алыңыз (supabase/schema.sql іске қосылған болуы керек)
 export const SUPABASE_URL = 'https://vzrdxujchwvgpeuixshq.supabase.co';
