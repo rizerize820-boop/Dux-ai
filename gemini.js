@@ -1,8 +1,16 @@
+import { CEREBRAS_KEY, GROQ_KEY } from './config';
+
 // Gemini API-мен жұмыс. Тарих: [{ role: 'user' | 'model', text, file?: { name, mimeType, data } }]
 // Квота таусылса (429), келесі модельге автоматты түрде ауысады
 const MODELS = ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 const endpoint = (model) =>
   'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent';
+
+// OpenAI үйлесімді сервистер (мәтін мен код үшін). Модель аты өзгерсе, осы жерде түзетіңіз
+const PROVIDERS = [
+  { name: 'Cerebras', url: 'https://api.cerebras.ai/v1/chat/completions', key: CEREBRAS_KEY, models: ['gpt-oss-120b', 'llama3.1-8b'] },
+  { name: 'Groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: GROQ_KEY, models: ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile'] },
+];
 
 const SYSTEM = (name) =>
   'Сен — Dux AI, ақылды көмекші. ' +
@@ -27,7 +35,7 @@ const toContents = (messages) =>
     return { role: m.role === 'model' ? 'model' : 'user', parts: parts };
   });
 
-export async function askGemini(apiKey, messages, userName) {
+async function askGoogle(apiKey, messages, userName) {
   if (!apiKey) throw new Error('API кілті жоқ. .env файлына EXPO_PUBLIC_GEMINI_API_KEY қойыңыз');
   const body = JSON.stringify({
     systemInstruction: { parts: [{ text: SYSTEM(userName) }] },
@@ -60,4 +68,50 @@ export async function askGemini(apiKey, messages, userName) {
     throw new Error('Жауап алынбады: ' + why);
   }
   return text;
+}
+
+const toOpenAI = (messages, userName) =>
+  [{ role: 'system', content: SYSTEM(userName) }].concat(
+    messages.map((m) => ({
+      role: m.role === 'model' ? 'assistant' : 'user',
+      content: (m.file ? '[Файл: ' + m.file.name + '] ' : '') + (m.text || ''),
+    }))
+  );
+
+async function askCompat(p, messages, userName) {
+  let lastError = p.name + ' қатесі';
+  for (const model of p.models) {
+    const res = await fetch(p.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + p.key },
+      body: JSON.stringify({ model: model, messages: toOpenAI(messages, userName) }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const text = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
+      if (text) return text;
+      lastError = p.name + ': бос жауап';
+      continue;
+    }
+    lastError = p.name + ': ' + ((json.error && json.error.message) || res.status);
+    // 404 — модель жоқ, келесісін көреміз; басқа қате — келесі сервиске өтеміз
+    if (res.status !== 404) break;
+  }
+  throw new Error(lastError);
+}
+
+// Фото/файл болса — Gemini; әйтпесе Cerebras → Groq → Gemini
+export async function askGemini(apiKey, messages, userName) {
+  const hasFile = messages.some((m) => m.file && m.file.data);
+  if (!hasFile) {
+    for (const p of PROVIDERS) {
+      if (!p.key) continue;
+      try {
+        return await askCompat(p, messages, userName);
+      } catch (e) {
+        console.log(e.message);
+      }
+    }
+  }
+  return askGoogle(apiKey, messages, userName);
 }

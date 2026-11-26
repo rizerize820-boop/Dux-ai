@@ -20,7 +20,7 @@ jobs:
         run: |
           npx create-expo-app@latest app --template blank --no-install
           cd app
-          cp ../src/App.js ../src/gemini.js ../src/app.json .
+          cp ../src/App.js ../src/gemini.js ../src/config.js ../src/app.json .
           rm -rf assets && cp -r ../src/assets ./assets
           npm install
           npx expo install expo-image-picker expo-document-picker @react-native-async-storage/async-storage react-native-safe-area-context react-native-screens @expo/vector-icons
