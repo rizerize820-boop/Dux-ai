@@ -389,7 +389,7 @@ function Main() {
     }
     setStatus(data);
     setCodeInput('');
-    Alert.alert(tr('Premium қосылды', 'Premium активирован', 'Premium activated'), 'Рақмет! Енді күніне ' + PREMIUM_DAILY + ' сұрақ және ең күшті модель.');
+    Alert.alert(tr('Premium қосылды', 'Premium активирован', 'Premium activated'), tr('Рақмет! Енді күніне ' + PREMIUM_DAILY + ' сұрақ және ең күшті модель.', 'Спасибо! Теперь доступно ' + PREMIUM_DAILY + ' вопросов в день и самая мощная модель.', 'Thanks! You now have ' + PREMIUM_DAILY + ' questions per day and the most powerful model.'));
   };
 
   const clearAll = () =>
@@ -408,7 +408,7 @@ function Main() {
   const submitAuth = async () => {
     const email = emailInput.trim();
     if (!email || passInput.length < 6) {
-      Alert.alert(tr('Қате', 'Ошибка', 'Error'), tr('Email және кемінде 6 таңбалы құпиясөз енгізіңіз', 'Введите email и пароль не короче 6 символов', 'Enter an email and a password of at least 6 characters'));
+      Alert.alert(tr('Қате', 'Ошибка', 'Error'), tr(tr('Email және кемінде 6 таңбалы құпиясөз енгізіңіз', 'Введите email и пароль не короче 6 символов', 'Enter an email and a password of at least 6 characters'), 'Введите email и пароль не короче 6 символов', 'Enter an email and a password of at least 6 characters'));
       return;
     }
     if (mode === 'up' && !nameInput.trim()) {
@@ -438,10 +438,10 @@ function Main() {
   };
 
   const logout = () => {
-    Alert.alert('Аккаунттан шығу?', 'Чаттар құрылғыда қалады, қайта кіргенде көресіз', [
+    Alert.alert(tr('Аккаунттан шығу?', 'Выйти из аккаунта?', 'Sign out?'), tr('Чаттар құрылғыда қалады, қайта кіргенде көресіз', 'Чаты останутся на устройстве и будут доступны после входа', 'Your chats will stay on this device and appear when you sign in again'), [
       { text: tr('Бас тарту', 'Отмена', 'Cancel'), style: 'cancel' },
       {
-        text: 'Шығу',
+        text: tr('Шығу', 'Выйти', 'Sign out'),
         style: 'destructive',
         onPress: () => {
           supabase.auth.signOut().catch(() => {});
@@ -552,7 +552,7 @@ function Main() {
       setLoading(false);
       Alert.alert(
         tr('Күндік лимит таусылды', 'Дневной лимит исчерпан', 'Daily limit reached'),
-        q.premium ? tr('Лимит ертең жаңарады', 'Лимит обновится завтра', 'The limit resets tomorrow') : 'Тегін тарифте күніне ' + FREE_DAILY + ' сұрақ. Premium-ға ауысып, күніне ' + PREMIUM_DAILY + ' сұрақ қойыңыз.',
+        q.premium ? tr('Лимит ертең жаңарады', 'Лимит обновится завтра', 'The limit resets tomorrow') : tr('Тегін тарифте күніне ' + FREE_DAILY + ' сұрақ. Premium-ға ауысып, күніне ' + PREMIUM_DAILY + ' сұрақ қойыңыз.', 'Бесплатно доступно ' + FREE_DAILY + ' вопросов в день. Перейдите на Premium, чтобы задавать до ' + PREMIUM_DAILY + ' вопросов.', 'The free plan includes ' + FREE_DAILY + ' questions per day. Upgrade to Premium for ' + PREMIUM_DAILY + ' questions.'),
         q.premium
           ? [{ text: 'OK' }]
           : [{ text: tr('Жабу', 'Закрыть', 'Close'), style: 'cancel' }, { text: 'Premium', onPress: () => setSettings(true) }]
@@ -675,6 +675,17 @@ function Main() {
         <TouchableOpacity onPress={() => setMode(mode === 'up' ? 'in' : 'up')} hitSlop={10}>
           <Text style={s.authSwitch}>{mode === 'up' ? tr('Аккаунт бар ма? Кіру', 'Уже есть аккаунт? Войти', 'Already have an account? Sign in') : tr('Аккаунт жоқ па? Тіркелу', 'Нет аккаунта? Зарегистрироваться', 'No account? Sign up')}</Text>
         </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 18 }}>
+          {[
+            { code: 'kk', label: 'Қазақша' },
+            { code: 'ru', label: 'Русский' },
+            { code: 'en', label: 'English' },
+          ].map((item) => (
+            <TouchableOpacity key={item.code} onPress={() => setLanguage(item.code)} style={{ padding: 8 }}>
+              <Text style={{ color: language === item.code ? C.accent : C.muted, fontWeight: '600' }}>{item.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </KeyboardAvoidingView>
     );
   } else {
@@ -870,7 +881,7 @@ function Main() {
           <SafeAreaView style={s.screen}>
             <View style={s.header}>
               <View style={s.iconBtn} />
-              <Text style={s.headerTitle}>Баптаулар</Text>
+              <Text style={s.headerTitle}>{tr('Баптаулар', 'Настройки', 'Settings')}</Text>
               <TouchableOpacity style={s.iconBtn} onPress={() => setSettings(false)}>
                 <Ionicons name="close" size={26} color={C.text} />
               </TouchableOpacity>
@@ -917,13 +928,13 @@ function Main() {
               {!premium ? (
                 <View style={[s.card, s.cardPro]}>
                   <Text style={s.cardTitle}>Dux Premium</Text>
-                  <Text style={s.perk}>• Күніне {PREMIUM_DAILY} сұрақ (тегін: {FREE_DAILY})</Text>
-                  <Text style={s.perk}>• Ең күшті модель: дәл жауап, күрделі код</Text>
-                  <Text style={s.perk}>• Ұзын, толық жауаптар</Text>
-                  <Text style={s.perk}>• Фото мен файлдарды терең талдау</Text>
+                  <Text style={s.perk}>• {tr('Күніне ', 'В день ', 'Per day ')}{PREMIUM_DAILY}{tr(' сұрақ (тегін: ', ' вопросов (бесплатно: ', ' questions (free: ')}{FREE_DAILY})</Text>
+                  <Text style={s.perk}>{tr('• Ең күшті модель: дәл жауап, күрделі код', '• Самая мощная модель: точные ответы и сложный код', '• Most powerful model: accurate answers and complex code')}</Text>
+                  <Text style={s.perk}>{tr('• Ұзын, толық жауаптар', '• Развёрнутые ответы', '• Detailed answers')}</Text>
+                  <Text style={s.perk}>{tr('• Фото мен файлдарды терең талдау', '• Глубокий анализ фото и файлов', '• In-depth photo and file analysis')}</Text>
                   {!!BUY_URL && (
                     <TouchableOpacity style={s.newBtn} onPress={() => Linking.openURL(BUY_URL)}>
-                      <Text style={s.newBtnText}>Premium сатып алу</Text>
+                      <Text style={s.newBtnText}>{tr('Premium сатып алу', 'Купить Premium', 'Buy Premium')}</Text>
                     </TouchableOpacity>
                   )}
                   <View style={s.codeRow}>
@@ -931,7 +942,7 @@ function Main() {
                       style={s.codeInput}
                       value={codeInput}
                       onChangeText={setCodeInput}
-                      placeholder="Белсендіру коды"
+                      placeholder={tr('Белсендіру коды', 'Код активации', 'Activation code')}
                       placeholderTextColor={C.muted}
                       autoCapitalize="characters"
                       autoCorrect={false}
@@ -943,10 +954,10 @@ function Main() {
                 </View>
               ) : (
                 <View style={[s.card, s.cardPro]}>
-                  <Text style={s.cardTitle}>Premium белсенді</Text>
-                  <Text style={s.perk}>Күніне {PREMIUM_DAILY} сұрақ және ең күшті модель қосулы.</Text>
+                  <Text style={s.cardTitle}>{tr('Premium белсенді', 'Premium активен', 'Premium active')}</Text>
+                  <Text style={s.perk}>{tr('Күніне ', 'В день ', 'Per day ')}{PREMIUM_DAILY}{tr(' сұрақ және ең күшті модель қосулы.', ' вопросов и самая мощная модель.', ' questions and the most powerful model.')}</Text>
                   {!!status.until && (
-                    <Text style={s.cardHint}>Мерзімі: {new Date(status.until).toLocaleDateString()}</Text>
+                    <Text style={s.cardHint}>{tr('Мерзімі: ', 'Срок действия: ', 'Expires: ')}{new Date(status.until).toLocaleDateString()}</Text>
                   )}
                 </View>
               )}
