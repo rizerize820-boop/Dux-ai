@@ -183,7 +183,7 @@ const strip = (m) =>
 const IMAGE_API = 'https://dux-ai.muhammedali8103.workers.dev';
 
 const isImagePrompt = (text) =>
-  /^(\\/image\\s+|нарисуй\\b|сгенерируй\\s+(картинку|изображение)|создай\\s+(картинку|изображение)|draw\\b|generate\\s+(an?\\s+)?image\\b|create\\s+(an?\\s+)?image\\b|make\\s+(an?\\s+)?picture\\b)/i.test(text.trim());
+  /^(\/image\s+|нарисуй\b|сгенерируй\s+(картинку|изображение)|создай\s+(картинку|изображение)|draw\b|generate\s+(an?\s+)?image\b|create\s+(an?\s+)?image\b|make\s+(an?\s+)?picture\b)/i.test(text.trim());
 
 async function generateImage(prompt, accessToken) {
   const response = await fetch(IMAGE_API + '/api/image', {
@@ -192,7 +192,7 @@ async function generateImage(prompt, accessToken) {
       'Content-Type': 'application/json',
       Authorization: 'Bearer ' + accessToken,
     },
-    body: JSON.stringify({ prompt: prompt.replace(/^\\/image\\s+/i, '').trim() }),
+    body: JSON.stringify({ prompt: prompt.replace(/^\/image\s+/i, '').trim() }),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || 'Не удалось создать изображение');
