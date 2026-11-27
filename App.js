@@ -10,13 +10,14 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
-import { askGemini } from './gemini';
+import { askGemini, setGeminiLang } from './gemini';
 import { BUY_URL } from './config';
 import { supabase, configured } from './supabase';
 
 const API_KEY = 'AQ.Ab8RN6KdZxec7Bnx57y36WIBp3oWc0u6UL_j6xIZ96Av-7aumw';
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const CHATS = 'chats_v2';
+const LANG = 'lang_v1';
 const OLD_HISTORY = 'chat_history';
 const FREE_DAILY = 50;
 const PREMIUM_DAILY = 500;
@@ -39,12 +40,140 @@ const C = {
   danger: '#FF6B6B',
 };
 
-const SUGGESTIONS = [
-  { icon: 'earth-outline', t: 'Қазақстан туралы қызықты дерек айт' },
-  { icon: 'document-text-outline', t: 'Мәтінді қысқаша түйіндеп бер' },
-  { icon: 'bulb-outline', t: 'Бизнес-идея ұсын' },
-  { icon: 'code-slash-outline', t: 'Python-да қарапайым бот жазып бер' },
+const LANGS = [
+  { id: 'kk', label: 'Қазақша' },
+  { id: 'ru', label: 'Русский' },
+  { id: 'en', label: 'English' },
 ];
+
+const STR = {
+  kk: {
+    suggestions: [
+      { icon: 'earth-outline', t: 'Қазақстан туралы қызықты дерек айт' },
+      { icon: 'document-text-outline', t: 'Мәтінді қысқаша түйіндеп бер' },
+      { icon: 'bulb-outline', t: 'Бизнес-идея ұсын' },
+      { icon: 'code-slash-outline', t: 'Python-да қарапайым бот жазып бер' },
+    ],
+    readFail: 'Файлды оқу мүмкін болмады', code: 'код', copied: 'Көшірілді', copy: 'Көшіру',
+    user: 'Қолданушы', oldChat: 'Ескі чат', error: 'Қате', newChat: 'Жаңа чат',
+    delChatQ: 'Чатты өшіру?', delChatMsg: 'Бұл чат жойылады', cancel: 'Бас тарту', delete: 'Өшіру',
+    badCode: 'Код дұрыс емес', badCodeMsg: 'Код қате немесе бұрын қолданылған',
+    premiumOn: 'Premium қосылды',
+    premiumOnMsg: (n) => 'Рақмет! Енді күніне ' + n + ' сұрақ және ең күшті модель.',
+    clearAllQ: 'Барлық чатты өшіру?', clearAllMsg: 'Бұл әрекетті қайтару мүмкін емес',
+    authNeed: 'Email және кемінде 6 таңбалы құпиясөз енгізіңіз', needName: 'Атыңызды жазыңыз',
+    confirmEmail: 'Email растаңыз', confirmEmailMsg: 'Поштаңызға хат жіберілді. Сілтемені басып, содан кейін кіріңіз.',
+    logoutQ: 'Аккаунттан шығу?', logoutMsg: 'Чаттар құрылғыда қалады, қайта кіргенде көресіз', logout: 'Шығу',
+    fileBig: 'Файл тым үлкен', fileBigMsg: 'Кішірек файл таңдаңыз (шамамен 12 МБ дейін)',
+    fileBigMsg2: 'Кішірек файл немесе қысқа видео таңдаңыз (шамамен 12 МБ дейін)',
+    camPerm: 'Камераға рұқсат керек', limitHit: 'Күндік лимит таусылды', limitTomorrow: 'Лимит ертең жаңарады',
+    limitFree: (f, p) => 'Тегін тарифте күніне ' + f + ' сұрақ. Premium-ға ауысып, күніне ' + p + ' сұрақ қойыңыз.',
+    close: 'Жабу', offline: 'Интернет байланысы жоқ. Тексеріп, қайта көріңіз',
+    signup: 'Жаңа аккаунт жасау', signin: 'Аккаунтқа кіру',
+    notConfigured: 'Supabase бапталмаған: config.js ішіне SUPABASE_URL және SUPABASE_ANON_KEY қойыңыз',
+    name: 'Атыңыз', password: 'Құпиясөз (кемінде 6 таңба)', signUpBtn: 'Тіркелу', signInBtn: 'Кіру',
+    haveAcc: 'Аккаунт бар ма? Кіру', noAcc: 'Аккаунт жоқ па? Тіркелу',
+    hello: 'Сәлем', helloHint: 'Сұрақ қойыңыз немесе фото, видео, файл жіберіңіз',
+    preparing: 'Файл дайындалуда...', msgPh: 'Хабарлама жазыңыз...',
+    recent: 'Соңғы чаттар', noChats: 'Әзірше чат жоқ',
+    camera: 'Камера', gallery: 'Галерея (фото, видео)', fileOpt: 'Файл (PDF, TXT)',
+    settings: 'Баптаулар', usageToday: 'Бүгінгі қолдану', resetNote: 'Лимит әр күні түнгі 00:00-де жаңарады',
+    perk1: (p, f) => '• Күніне ' + p + ' сұрақ (тегін: ' + f + ')',
+    perk2: '• Ең күшті модель: дәл жауап, күрделі код', perk3: '• Ұзын, толық жауаптар',
+    perk4: '• Фото мен файлдарды терең талдау', buy: 'Premium сатып алу', codePh: 'Белсендіру коды',
+    premiumActive: 'Premium белсенді',
+    premiumActiveMsg: (p) => 'Күніне ' + p + ' сұрақ және ең күшті модель қосулы.',
+    until: 'Мерзімі', clearAll: 'Барлық чатты өшіру', logoutBtn: 'Аккаунттан шығу', language: 'Тіл',
+  },
+  ru: {
+    suggestions: [
+      { icon: 'earth-outline', t: 'Расскажи интересный факт о Казахстане' },
+      { icon: 'document-text-outline', t: 'Кратко перескажи текст' },
+      { icon: 'bulb-outline', t: 'Предложи бизнес-идею' },
+      { icon: 'code-slash-outline', t: 'Напиши простого бота на Python' },
+    ],
+    readFail: 'Не удалось прочитать файл', code: 'код', copied: 'Скопировано', copy: 'Копировать',
+    user: 'Пользователь', oldChat: 'Старый чат', error: 'Ошибка', newChat: 'Новый чат',
+    delChatQ: 'Удалить чат?', delChatMsg: 'Этот чат будет удалён', cancel: 'Отмена', delete: 'Удалить',
+    badCode: 'Неверный код', badCodeMsg: 'Код неверный или уже использован',
+    premiumOn: 'Premium включён',
+    premiumOnMsg: (n) => 'Спасибо! Теперь ' + n + ' вопросов в день и самая сильная модель.',
+    clearAllQ: 'Удалить все чаты?', clearAllMsg: 'Это действие нельзя отменить',
+    authNeed: 'Введите email и пароль не короче 6 символов', needName: 'Введите ваше имя',
+    confirmEmail: 'Подтвердите email', confirmEmailMsg: 'Мы отправили вам письмо. Перейдите по ссылке, затем войдите.',
+    logoutQ: 'Выйти из аккаунта?', logoutMsg: 'Чаты останутся на устройстве, вы увидите их при следующем входе', logout: 'Выйти',
+    fileBig: 'Файл слишком большой', fileBigMsg: 'Выберите файл поменьше (до 12 МБ)',
+    fileBigMsg2: 'Выберите файл поменьше или короткое видео (до 12 МБ)',
+    camPerm: 'Нужен доступ к камере', limitHit: 'Дневной лимит исчерпан', limitTomorrow: 'Лимит обновится завтра',
+    limitFree: (f, p) => 'На бесплатном тарифе ' + f + ' вопросов в день. Перейдите на Premium, чтобы задавать ' + p + '.',
+    close: 'Закрыть', offline: 'Нет интернета. Проверьте соединение и повторите',
+    signup: 'Создать аккаунт', signin: 'Вход в аккаунт',
+    notConfigured: 'Supabase не настроен: укажите SUPABASE_URL и SUPABASE_ANON_KEY в config.js',
+    name: 'Ваше имя', password: 'Пароль (не короче 6 символов)', signUpBtn: 'Зарегистрироваться', signInBtn: 'Войти',
+    haveAcc: 'Уже есть аккаунт? Войти', noAcc: 'Нет аккаунта? Зарегистрироваться',
+    hello: 'Привет', helloHint: 'Задайте вопрос или отправьте фото, видео, файл',
+    preparing: 'Подготовка файла...', msgPh: 'Напишите сообщение...',
+    recent: 'Недавние чаты', noChats: 'Пока нет чатов',
+    camera: 'Камера', gallery: 'Галерея (фото, видео)', fileOpt: 'Файл (PDF, TXT)',
+    settings: 'Настройки', usageToday: 'Использовано сегодня', resetNote: 'Лимит обновляется каждый день в 00:00',
+    perk1: (p, f) => '• ' + p + ' вопросов в день (бесплатно: ' + f + ')',
+    perk2: '• Самая сильная модель: точные ответы, сложный код', perk3: '• Длинные, подробные ответы',
+    perk4: '• Глубокий анализ фото и файлов', buy: 'Купить Premium', codePh: 'Код активации',
+    premiumActive: 'Premium активен',
+    premiumActiveMsg: (p) => p + ' вопросов в день и самая сильная модель включены.',
+    until: 'Действует до', clearAll: 'Удалить все чаты', logoutBtn: 'Выйти из аккаунта', language: 'Язык',
+  },
+  en: {
+    suggestions: [
+      { icon: 'earth-outline', t: 'Tell me an interesting fact about Kazakhstan' },
+      { icon: 'document-text-outline', t: 'Summarize a text for me' },
+      { icon: 'bulb-outline', t: 'Suggest a business idea' },
+      { icon: 'code-slash-outline', t: 'Write a simple bot in Python' },
+    ],
+    readFail: 'Could not read the file', code: 'code', copied: 'Copied', copy: 'Copy',
+    user: 'User', oldChat: 'Old chat', error: 'Error', newChat: 'New chat',
+    delChatQ: 'Delete chat?', delChatMsg: 'This chat will be deleted', cancel: 'Cancel', delete: 'Delete',
+    badCode: 'Invalid code', badCodeMsg: 'The code is wrong or already used',
+    premiumOn: 'Premium activated',
+    premiumOnMsg: (n) => 'Thanks! You now get ' + n + ' questions a day and the strongest model.',
+    clearAllQ: 'Delete all chats?', clearAllMsg: 'This cannot be undone',
+    authNeed: 'Enter an email and a password of at least 6 characters', needName: 'Enter your name',
+    confirmEmail: 'Confirm your email', confirmEmailMsg: 'We sent you an email. Open the link, then sign in.',
+    logoutQ: 'Sign out?', logoutMsg: 'Chats stay on this device and will be here when you sign in again', logout: 'Sign out',
+    fileBig: 'File is too large', fileBigMsg: 'Choose a smaller file (up to 12 MB)',
+    fileBigMsg2: 'Choose a smaller file or a shorter video (up to 12 MB)',
+    camPerm: 'Camera access is required', limitHit: 'Daily limit reached', limitTomorrow: 'The limit resets tomorrow',
+    limitFree: (f, p) => 'The free plan allows ' + f + ' questions a day. Upgrade to Premium for ' + p + '.',
+    close: 'Close', offline: 'No internet connection. Check it and try again',
+    signup: 'Create an account', signin: 'Sign in to your account',
+    notConfigured: 'Supabase is not set up: add SUPABASE_URL and SUPABASE_ANON_KEY to config.js',
+    name: 'Your name', password: 'Password (at least 6 characters)', signUpBtn: 'Sign up', signInBtn: 'Sign in',
+    haveAcc: 'Have an account? Sign in', noAcc: 'No account? Sign up',
+    hello: 'Hello', helloHint: 'Ask a question or send a photo, video or file',
+    preparing: 'Preparing file...', msgPh: 'Type a message...',
+    recent: 'Recent chats', noChats: 'No chats yet',
+    camera: 'Camera', gallery: 'Gallery (photo, video)', fileOpt: 'File (PDF, TXT)',
+    settings: 'Settings', usageToday: 'Used today', resetNote: 'The limit resets every day at 00:00',
+    perk1: (p, f) => '• ' + p + ' questions a day (free: ' + f + ')',
+    perk2: '• Strongest model: accurate answers, complex code', perk3: '• Long, detailed answers',
+    perk4: '• Deeper analysis of photos and files', buy: 'Buy Premium', codePh: 'Activation code',
+    premiumActive: 'Premium is active',
+    premiumActiveMsg: (p) => p + ' questions a day and the strongest model are on.',
+    until: 'Valid until', clearAll: 'Delete all chats', logoutBtn: 'Sign out', language: 'Language',
+  },
+};
+
+const detectLang = () => {
+  try {
+    const l = (Intl.DateTimeFormat().resolvedOptions().locale || '').slice(0, 2);
+    return l === 'ru' ? 'ru' : l === 'en' ? 'en' : 'kk';
+  } catch (e) {
+    return 'kk';
+  }
+};
+
+// Ағымдағы тіл: Main әр рендерде жаңартады, төмендегі компоненттер осыны оқиды
+let tr = STR.kk;
 
 // Файл мазмұны (data) жадта ғана тұрады, тарихқа аты мен түрі сақталады
 const strip = (m) =>
@@ -55,7 +184,7 @@ const isVideo = (f) => !!f && !!f.mimeType && f.mimeType.indexOf('video/') === 0
 
 const readBase64 = (uri) =>
   new Promise((resolve, reject) => {
-    const fail = () => reject(new Error('Файлды оқу мүмкін болмады'));
+    const fail = () => reject(new Error(tr.readFail));
     const xhr = new XMLHttpRequest();
     xhr.responseType = 'blob';
     xhr.onload = () => {
@@ -107,10 +236,10 @@ function RichText({ text, onCopy, copied }) {
           return (
             <View key={i} style={s.codeBox}>
               <View style={s.codeHead}>
-                <Text style={s.codeLang}>{lang || 'код'}</Text>
+                <Text style={s.codeLang}>{lang || tr.code}</Text>
                 <TouchableOpacity onPress={() => onCopy(code)} hitSlop={10} style={s.codeCopy}>
                   <Ionicons name={copied === code ? 'checkmark' : 'copy-outline'} size={15} color={C.muted} />
-                  <Text style={s.codeCopyText}>{copied === code ? 'Көшірілді' : 'Көшіру'}</Text>
+                  <Text style={s.codeCopyText}>{copied === code ? tr.copied : tr.copy}</Text>
                 </TouchableOpacity>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -200,6 +329,9 @@ function Main() {
   const [status, setStatus] = useState({ premium: false, used: 0, limit: FREE_DAILY, until: null });
   const [settings, setSettings] = useState(false);
   const [copied, setCopied] = useState(null);
+  const [lang, setLang] = useState(detectLang());
+  tr = STR[lang];
+  setGeminiLang(lang);
   const [codeInput, setCodeInput] = useState('');
   const progress = useRef(new Animated.Value(0)).current;
   const list = useRef(null);
@@ -213,8 +345,22 @@ function Main() {
   const left = Math.max(0, limit - used);
   const uid = session ? session.user.id : null;
   const profile = session
-    ? { name: (session.user.user_metadata && session.user.user_metadata.name) || session.user.email || 'Қолданушы' }
+    ? { name: (session.user.user_metadata && session.user.user_metadata.name) || session.user.email || tr.user }
     : null;
+
+  // Таңдалған тіл құрылғыда сақталады
+  useEffect(() => {
+    AsyncStorage.getItem(LANG)
+      .then((l) => {
+        if (l && STR[l]) setLang(l);
+      })
+      .catch(() => {});
+  }, []);
+
+  const chooseLang = (l) => {
+    setLang(l);
+    AsyncStorage.setItem(LANG, l).catch(() => {});
+  };
 
   // Аккаунт сессиясы (Supabase)
   useEffect(() => {
@@ -260,7 +406,7 @@ function Main() {
             const old = JSON.parse((await AsyncStorage.getItem(OLD_HISTORY)) || '[]');
             const first = old.find((m) => m.role === 'user');
             saved = old.length
-              ? [{ id: String(Date.now()), title: ((first && first.text) || 'Ескі чат').slice(0, 40), messages: old, updatedAt: Date.now() }]
+              ? [{ id: String(Date.now()), title: ((first && first.text) || tr.oldChat).slice(0, 40), messages: old, updatedAt: Date.now() }]
               : [];
           }
           AsyncStorage.removeItem(CHATS).catch(() => {});
@@ -269,7 +415,7 @@ function Main() {
         chatsOwner.current = uid;
         setChats(saved);
       } catch (e) {
-        Alert.alert('Қате', e.message);
+        Alert.alert(tr.error, e.message);
       } finally {
         setReady(true);
       }
@@ -301,7 +447,7 @@ function Main() {
       const msgs = mutate(current.messages);
       if (!msgs.length) return prev.filter((c) => c.id !== id);
       const first = msgs.find((m) => m.role === 'user');
-      const title = (first && (first.text || (first.file && first.file.name))) || 'Жаңа чат';
+      const title = (first && (first.text || (first.file && first.file.name))) || tr.newChat;
       const updated = { id: id, title: title.slice(0, 40), messages: msgs, updatedAt: Date.now() };
       return [updated].concat(prev.filter((c) => c.id !== id));
     });
@@ -336,10 +482,10 @@ function Main() {
 
   const deleteChat = (id) => {
     if (loading) return;
-    Alert.alert('Чатты өшіру?', 'Бұл чат жойылады', [
-      { text: 'Бас тарту', style: 'cancel' },
+    Alert.alert(tr.delChatQ, tr.delChatMsg, [
+      { text: tr.cancel, style: 'cancel' },
       {
-        text: 'Өшіру',
+        text: tr.delete,
         style: 'destructive',
         onPress: () => {
           setChats((prev) => prev.filter((c) => c.id !== id));
@@ -354,19 +500,19 @@ function Main() {
     if (!code) return;
     const { data, error } = await supabase.rpc('redeem_code', { p_code: code });
     if (error || !data) {
-      Alert.alert('Код дұрыс емес', 'Код қате немесе бұрын қолданылған');
+      Alert.alert(tr.badCode, tr.badCodeMsg);
       return;
     }
     setStatus(data);
     setCodeInput('');
-    Alert.alert('Premium қосылды', 'Рақмет! Енді күніне ' + PREMIUM_DAILY + ' сұрақ және ең күшті модель.');
+    Alert.alert(tr.premiumOn, tr.premiumOnMsg(PREMIUM_DAILY));
   };
 
   const clearAll = () =>
-    Alert.alert('Барлық чатты өшіру?', 'Бұл әрекетті қайтару мүмкін емес', [
-      { text: 'Бас тарту', style: 'cancel' },
+    Alert.alert(tr.clearAllQ, tr.clearAllMsg, [
+      { text: tr.cancel, style: 'cancel' },
       {
-        text: 'Өшіру',
+        text: tr.delete,
         style: 'destructive',
         onPress: () => {
           setChats([]);
@@ -378,11 +524,11 @@ function Main() {
   const submitAuth = async () => {
     const email = emailInput.trim();
     if (!email || passInput.length < 6) {
-      Alert.alert('Қате', 'Email және кемінде 6 таңбалы құпиясөз енгізіңіз');
+      Alert.alert(tr.error, tr.authNeed);
       return;
     }
     if (mode === 'up' && !nameInput.trim()) {
-      Alert.alert('Қате', 'Атыңызды жазыңыз');
+      Alert.alert(tr.error, tr.needName);
       return;
     }
     setBusy(true);
@@ -394,24 +540,24 @@ function Main() {
           options: { data: { name: nameInput.trim() } },
         });
         if (error) throw error;
-        if (!data.session) Alert.alert('Email растаңыз', 'Поштаңызға хат жіберілді. Сілтемені басып, содан кейін кіріңіз.');
+        if (!data.session) Alert.alert(tr.confirmEmail, tr.confirmEmailMsg);
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: email, password: passInput });
         if (error) throw error;
       }
       setPassInput('');
     } catch (e) {
-      Alert.alert('Қате', e.message);
+      Alert.alert(tr.error, e.message);
     } finally {
       setBusy(false);
     }
   };
 
   const logout = () => {
-    Alert.alert('Аккаунттан шығу?', 'Чаттар құрылғыда қалады, қайта кіргенде көресіз', [
-      { text: 'Бас тарту', style: 'cancel' },
+    Alert.alert(tr.logoutQ, tr.logoutMsg, [
+      { text: tr.cancel, style: 'cancel' },
       {
-        text: 'Шығу',
+        text: tr.logout,
         style: 'destructive',
         onPress: () => {
           supabase.auth.signOut().catch(() => {});
@@ -427,7 +573,7 @@ function Main() {
 
   const attach = (picked) => {
     if (picked.data.length > MAX_BASE64) {
-      Alert.alert('Файл тым үлкен', 'Кішірек файл таңдаңыз (шамамен 12 МБ дейін)');
+      Alert.alert(tr.fileBig, tr.fileBigMsg);
       return;
     }
     setFile(picked);
@@ -437,7 +583,7 @@ function Main() {
     try {
       if (camera) {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
-        if (!perm.granted) return Alert.alert('Камераға рұқсат керек');
+        if (!perm.granted) return Alert.alert(tr.camPerm);
       }
       const open = camera ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
       const result = await open({
@@ -449,7 +595,7 @@ function Main() {
       if (result.canceled) return;
       const a = result.assets[0];
       if (a.fileSize && a.fileSize > MAX_FILE_BYTES) {
-        Alert.alert('Файл тым үлкен', 'Кішірек файл немесе қысқа видео таңдаңыз (шамамен 12 МБ дейін)');
+        Alert.alert(tr.fileBig, tr.fileBigMsg2);
         return;
       }
       const video = a.type === 'video' || (a.mimeType || '').indexOf('video/') === 0;
@@ -462,7 +608,7 @@ function Main() {
         data: data,
       });
     } catch (e) {
-      Alert.alert('Қате', e.message);
+      Alert.alert(tr.error, e.message);
     } finally {
       setPicking(false);
     }
@@ -477,14 +623,14 @@ function Main() {
       if (result.canceled) return;
       const a = result.assets[0];
       if (a.size && a.size > MAX_FILE_BYTES) {
-        Alert.alert('Файл тым үлкен', 'Кішірек файл таңдаңыз (шамамен 12 МБ дейін)');
+        Alert.alert(tr.fileBig, tr.fileBigMsg);
         return;
       }
       setPicking(true);
       const data = await readBase64(a.uri);
       attach({ name: a.name, uri: a.uri, mimeType: a.mimeType || 'application/pdf', data: data });
     } catch (e) {
-      Alert.alert('Қате', e.message);
+      Alert.alert(tr.error, e.message);
     } finally {
       setPicking(false);
     }
@@ -514,18 +660,18 @@ function Main() {
       q = data;
     } catch (e) {
       setLoading(false);
-      Alert.alert('Қате', e.message);
+      Alert.alert(tr.error, e.message);
       return;
     }
     setStatus((p) => ({ ...p, used: q.used, limit: q.limit, premium: q.premium }));
     if (!q.ok) {
       setLoading(false);
       Alert.alert(
-        'Күндік лимит таусылды',
-        q.premium ? 'Лимит ертең жаңарады' : 'Тегін тарифте күніне ' + FREE_DAILY + ' сұрақ. Premium-ға ауысып, күніне ' + PREMIUM_DAILY + ' сұрақ қойыңыз.',
+        tr.limitHit,
+        q.premium ? tr.limitTomorrow : tr.limitFree(FREE_DAILY, PREMIUM_DAILY),
         q.premium
           ? [{ text: 'OK' }]
-          : [{ text: 'Жабу', style: 'cancel' }, { text: 'Premium', onPress: () => setSettings(true) }]
+          : [{ text: tr.close, style: 'cancel' }, { text: 'Premium', onPress: () => setSettings(true) }]
       );
       return;
     }
@@ -549,7 +695,7 @@ function Main() {
       upsert(id, () => base);
       setInput(text);
       setFile(sentFile);
-      Alert.alert('Қате', /Network request failed/i.test(e.message) ? 'Интернет байланысы жоқ. Тексеріп, қайта көріңіз' : e.message);
+      Alert.alert(tr.error, /Network request failed/i.test(e.message) ? tr.offline : e.message);
     } finally {
       setLoading(false);
     }
@@ -596,10 +742,10 @@ function Main() {
       <KeyboardAvoidingView style={[s.flex, s.loginWrap]} behavior="padding">
         <Image source={require('./assets/dux-icon.png')} style={s.logo} />
         <Text style={s.hello}>Dux AI</Text>
-        <Text style={s.hint}>{mode === 'up' ? 'Жаңа аккаунт жасау' : 'Аккаунтқа кіру'}</Text>
+        <Text style={s.hint}>{mode === 'up' ? tr.signup : tr.signin}</Text>
         {!configured && (
           <Text style={[s.hint, { color: C.danger }]}>
-            Supabase бапталмаған: config.js ішіне SUPABASE_URL және SUPABASE_ANON_KEY қойыңыз
+            {tr.notConfigured}
           </Text>
         )}
         {mode === 'up' && (
@@ -608,7 +754,7 @@ function Main() {
               style={s.loginInput}
               value={nameInput}
               onChangeText={setNameInput}
-              placeholder="Атыңыз"
+              placeholder={tr.name}
               placeholderTextColor={C.muted}
               maxLength={30}
             />
@@ -631,7 +777,7 @@ function Main() {
             style={s.loginInput}
             value={passInput}
             onChangeText={setPassInput}
-            placeholder="Құпиясөз (кемінде 6 таңба)"
+            placeholder={tr.password}
             placeholderTextColor={C.muted}
             secureTextEntry
             autoCapitalize="none"
@@ -640,10 +786,10 @@ function Main() {
           />
         </View>
         <TouchableOpacity style={[s.newBtn, s.loginBtn, busy && s.sendOff]} onPress={submitAuth} disabled={busy}>
-          {busy ? <ActivityIndicator color={C.accentInk} /> : <Text style={s.newBtnText}>{mode === 'up' ? 'Тіркелу' : 'Кіру'}</Text>}
+          {busy ? <ActivityIndicator color={C.accentInk} /> : <Text style={s.newBtnText}>{mode === 'up' ? tr.signUpBtn : tr.signInBtn}</Text>}
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setMode(mode === 'up' ? 'in' : 'up')} hitSlop={10}>
-          <Text style={s.authSwitch}>{mode === 'up' ? 'Аккаунт бар ма? Кіру' : 'Аккаунт жоқ па? Тіркелу'}</Text>
+          <Text style={s.authSwitch}>{mode === 'up' ? tr.haveAcc : tr.noAcc}</Text>
         </TouchableOpacity>
       </KeyboardAvoidingView>
     );
@@ -672,10 +818,10 @@ function Main() {
           ListEmptyComponent={
             <View style={s.empty}>
               <Image source={require('./assets/dux-icon.png')} style={s.logo} />
-              <Text style={s.hello}>Сәлем, {profile ? profile.name : ''}</Text>
-              <Text style={s.hint}>Сұрақ қойыңыз немесе фото, видео, файл жіберіңіз</Text>
+              <Text style={s.hello}>{tr.hello}, {profile ? profile.name : ''}</Text>
+              <Text style={s.hint}>{tr.helloHint}</Text>
               <View style={s.chips}>
-                {SUGGESTIONS.map((x) => (
+                {tr.suggestions.map((x) => (
                   <TouchableOpacity key={x.t} style={s.chip} onPress={() => setInput(x.t)}>
                     <View style={s.chipIcon}>
                       <Ionicons name={x.icon} size={20} color={C.accent} />
@@ -702,7 +848,7 @@ function Main() {
             {picking ? (
               <>
                 <ActivityIndicator color={C.accent} />
-                <Text style={s.previewName}>Файл дайындалуда...</Text>
+                <Text style={s.previewName}>{tr.preparing}</Text>
               </>
             ) : (
               <>
@@ -726,7 +872,7 @@ function Main() {
               value={input}
               onChangeText={setInput}
               multiline
-              placeholder="Хабарлама жазыңыз..."
+              placeholder={tr.msgPh}
               placeholderTextColor={C.muted}
             />
             <TouchableOpacity
@@ -769,15 +915,15 @@ function Main() {
 
             <TouchableOpacity style={s.newBtn} onPress={newChat} disabled={loading}>
               <Ionicons name="add" size={22} color="#fff" />
-              <Text style={s.newBtnText}>Жаңа чат</Text>
+              <Text style={s.newBtnText}>{tr.newChat}</Text>
             </TouchableOpacity>
 
-            <Text style={s.section}>Соңғы чаттар</Text>
+            <Text style={s.section}>{tr.recent}</Text>
             <FlatList
               data={chats}
               keyExtractor={(c) => c.id}
               style={s.flex}
-              ListEmptyComponent={<Text style={s.noChats}>Әзірше чат жоқ</Text>}
+              ListEmptyComponent={<Text style={s.noChats}>{tr.noChats}</Text>}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[s.chatItem, item.id === activeId && s.chatItemActive]}
@@ -822,15 +968,15 @@ function Main() {
             <View style={s.grabber} />
             <TouchableOpacity style={s.sheetRow} onPress={() => choose(() => pickMedia(true))}>
               <Ionicons name="camera-outline" size={24} color={C.text} />
-              <Text style={s.sheetText}>Камера</Text>
+              <Text style={s.sheetText}>{tr.camera}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.sheetRow} onPress={() => choose(() => pickMedia(false))}>
               <Ionicons name="images-outline" size={24} color={C.text} />
-              <Text style={s.sheetText}>Галерея (фото, видео)</Text>
+              <Text style={s.sheetText}>{tr.gallery}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.sheetRow} onPress={() => choose(pickDocument)}>
               <Ionicons name="document-outline" size={24} color={C.text} />
-              <Text style={s.sheetText}>Файл (PDF, TXT)</Text>
+              <Text style={s.sheetText}>{tr.fileOpt}</Text>
             </TouchableOpacity>
           </Pressable>
         </Pressable>
@@ -840,7 +986,7 @@ function Main() {
           <SafeAreaView style={s.screen}>
             <View style={s.header}>
               <View style={s.iconBtn} />
-              <Text style={s.headerTitle}>Баптаулар</Text>
+              <Text style={s.headerTitle}>{tr.settings}</Text>
               <TouchableOpacity style={s.iconBtn} onPress={() => setSettings(false)}>
                 <Ionicons name="close" size={26} color={C.text} />
               </TouchableOpacity>
@@ -857,24 +1003,39 @@ function Main() {
               </View>
 
               <View style={s.card}>
-                <Text style={s.cardTitle}>Бүгінгі қолдану</Text>
+                <Text style={s.cardTitle}>{tr.usageToday}</Text>
                 <Text style={s.usageNum}>{used} / {limit}</Text>
                 <View style={s.bar2}>
                   <View style={[s.bar2Fill, { width: Math.min(100, (used / limit) * 100) + '%', backgroundColor: used / limit > 0.9 ? C.danger : premium ? C.gold : C.accent }]} />
                 </View>
-                <Text style={s.cardHint}>Лимит әр күні түнгі 00:00-де жаңарады</Text>
+                <Text style={s.cardHint}>{tr.resetNote}</Text>
+              </View>
+
+              <View style={s.card}>
+                <Text style={s.cardTitle}>{tr.language}</Text>
+                <View style={s.langRow}>
+                  {LANGS.map((l) => (
+                    <TouchableOpacity
+                      key={l.id}
+                      style={[s.langBtn, lang === l.id && s.langBtnOn]}
+                      onPress={() => chooseLang(l.id)}
+                    >
+                      <Text style={[s.langText, lang === l.id && s.langTextOn]}>{l.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
 
               {!premium ? (
                 <View style={[s.card, s.cardPro]}>
                   <Text style={s.cardTitle}>Dux Premium</Text>
-                  <Text style={s.perk}>• Күніне {PREMIUM_DAILY} сұрақ (тегін: {FREE_DAILY})</Text>
-                  <Text style={s.perk}>• Ең күшті модель: дәл жауап, күрделі код</Text>
-                  <Text style={s.perk}>• Ұзын, толық жауаптар</Text>
-                  <Text style={s.perk}>• Фото мен файлдарды терең талдау</Text>
+                  <Text style={s.perk}>{tr.perk1(PREMIUM_DAILY, FREE_DAILY)}</Text>
+                  <Text style={s.perk}>{tr.perk2}</Text>
+                  <Text style={s.perk}>{tr.perk3}</Text>
+                  <Text style={s.perk}>{tr.perk4}</Text>
                   {!!BUY_URL && (
                     <TouchableOpacity style={s.newBtn} onPress={() => Linking.openURL(BUY_URL)}>
-                      <Text style={s.newBtnText}>Premium сатып алу</Text>
+                      <Text style={s.newBtnText}>{tr.buy}</Text>
                     </TouchableOpacity>
                   )}
                   <View style={s.codeRow}>
@@ -882,7 +1043,7 @@ function Main() {
                       style={s.codeInput}
                       value={codeInput}
                       onChangeText={setCodeInput}
-                      placeholder="Белсендіру коды"
+                      placeholder={tr.codePh}
                       placeholderTextColor={C.muted}
                       autoCapitalize="characters"
                       autoCorrect={false}
@@ -894,16 +1055,16 @@ function Main() {
                 </View>
               ) : (
                 <View style={[s.card, s.cardPro]}>
-                  <Text style={s.cardTitle}>Premium белсенді</Text>
-                  <Text style={s.perk}>Күніне {PREMIUM_DAILY} сұрақ және ең күшті модель қосулы.</Text>
+                  <Text style={s.cardTitle}>{tr.premiumActive}</Text>
+                  <Text style={s.perk}>{tr.premiumActiveMsg(PREMIUM_DAILY)}</Text>
                   {!!status.until && (
-                    <Text style={s.cardHint}>Мерзімі: {new Date(status.until).toLocaleDateString()}</Text>
+                    <Text style={s.cardHint}>{tr.until}: {new Date(status.until).toLocaleDateString()}</Text>
                   )}
                 </View>
               )}
 
               <TouchableOpacity style={s.ghostBtn} onPress={clearAll}>
-                <Text style={[s.ghostText, { color: C.danger }]}>Барлық чатты өшіру</Text>
+                <Text style={[s.ghostText, { color: C.danger }]}>{tr.clearAll}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.ghostBtn}
@@ -912,7 +1073,7 @@ function Main() {
                   setTimeout(logout, 300);
                 }}
               >
-                <Text style={s.ghostText}>Аккаунттан шығу</Text>
+                <Text style={s.ghostText}>{tr.logoutBtn}</Text>
               </TouchableOpacity>
             </ScrollView>
           </SafeAreaView>
@@ -1033,6 +1194,12 @@ const s = StyleSheet.create({
   codeBtn: { width: 64, alignItems: 'center', justifyContent: 'center', backgroundColor: C.accent, borderRadius: 14 },
   ghostBtn: { alignItems: 'center', paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border },
   ghostText: { color: C.text, fontSize: 16 },
+
+  langRow: { flexDirection: 'row', gap: 8 },
+  langBtn: { flex: 1, alignItems: 'center', paddingVertical: 11, borderRadius: 12, backgroundColor: C.surface2 },
+  langBtnOn: { backgroundColor: C.accent },
+  langText: { color: C.text, fontSize: 15 },
+  langTextOn: { color: C.accentInk, fontWeight: '700' },
 
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingBottom: 28, paddingTop: 10 },

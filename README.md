@@ -28,3 +28,10 @@ eas submit -p ios
 4. **Project Settings → API**: `Project URL` мен `anon public` кілтін `config.js` ішіндегі `SUPABASE_URL` және `SUPABASE_ANON_KEY` жолдарына қойыңыз.
 5. Premium кодтары: SQL Editor-де `insert into public.codes (code, days) values ('DUX-XXXX-1111', 30);`
    (код бір рет қана жұмыс істейді, күндік лимит пен тариф серверде тексеріледі).
+
+## APK (Android)
+GitHub → Actions → **Build Android APK** → Run workflow. 15–25 минуттан кейін аяқталған іске қосудан **DuxAI-apk** артефактын жүктеңіз (ішінде `DuxAI.apk`).
+Телефонда APK ашыңыз да, «Белгісіз көздерден орнатуға» рұқсат беріңіз. APK arm64 телефондарға арналған (қазіргі телефондардың басым көпшілігі).
+
+## Тілдер
+Интерфейс қазақша, орысша және ағылшынша. Тілді Баптаулар → Тіл бөлімінен ауыстыруға болады; бастапқыда құрылғы тілі алынады.

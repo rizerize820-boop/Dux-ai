@@ -8,6 +8,18 @@ const PRO_MODELS = ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'];
 const endpoint = (model) =>
   'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent';
 
+// Қолданушыға көрсетілетін қателер (тілі қолданбадан беріледі)
+let LANG = 'kk';
+export const setGeminiLang = (l) => {
+  LANG = l;
+};
+const E = {
+  kk: { noKey: 'API кілті жоқ', unknown: 'Белгісіз қате', server: 'Сервер қатесі: ', quota: 'Барлық модельдің күндік квотасы таусылды. Кейінірек қайталаңыз.', noAnswer: 'Жауап алынбады: ', empty: 'бос жауап' },
+  ru: { noKey: 'Нет API-ключа', unknown: 'Неизвестная ошибка', server: 'Ошибка сервера: ', quota: 'Дневная квота всех моделей исчерпана. Повторите позже.', noAnswer: 'Ответ не получен: ', empty: 'пустой ответ' },
+  en: { noKey: 'API key is missing', unknown: 'Unknown error', server: 'Server error: ', quota: 'The daily quota of all models is used up. Try again later.', noAnswer: 'No answer received: ', empty: 'empty answer' },
+};
+const e = (k) => (E[LANG] || E.kk)[k];
+
 // OpenAI үйлесімді сервистер (мәтін мен код үшін). Модель аты өзгерсе, осы жерде түзетіңіз
 const PROVIDERS = [
   { name: 'Cerebras', url: 'https://api.cerebras.ai/v1/chat/completions', key: CEREBRAS_KEY, models: ['gpt-oss-120b', 'llama3.1-8b'] },
@@ -41,14 +53,14 @@ const toContents = (messages) =>
   });
 
 async function askGoogle(apiKey, messages, userName, premium) {
-  if (!apiKey) throw new Error('API кілті жоқ. .env файлына EXPO_PUBLIC_GEMINI_API_KEY қойыңыз');
+  if (!apiKey) throw new Error(e('noKey'));
   const body = JSON.stringify({
     systemInstruction: { parts: [{ text: SYSTEM(userName, premium) }] },
     contents: toContents(messages),
     generationConfig: { maxOutputTokens: premium ? 8192 : 1024 },
   });
   let json = {};
-  let lastError = 'Белгісіз қате';
+  let lastError = e('unknown');
   for (const model of premium ? PRO_MODELS : FREE_MODELS) {
     const res = await fetch(endpoint(model), {
       method: 'POST',
@@ -57,21 +69,21 @@ async function askGoogle(apiKey, messages, userName, premium) {
     });
     json = await res.json().catch(() => ({}));
     if (res.ok) break;
-    lastError = (json.error && json.error.message) || 'Сервер қатесі: ' + res.status;
+    lastError = (json.error && json.error.message) || e('server') + res.status;
     // 429 — квота, 404 — модель жоқ, 503 — бос емес: келесі модельді көреміз
     if (res.status !== 429 && res.status !== 404 && res.status !== 503) throw new Error(lastError);
     json = {};
   }
   if (!json.candidates && !json.promptFeedback) {
-    throw new Error('Барлық модельдің күндік квотасы таусылды. Кейінірек қайталаңыз.\n' + lastError);
+    throw new Error(e('quota') + '\n' + lastError);
   }
   const cand = json.candidates && json.candidates[0];
   const text = cand && cand.content && cand.content.parts
     ? cand.content.parts.map((p) => p.text || '').join('')
     : '';
   if (!text) {
-    const why = (json.promptFeedback && json.promptFeedback.blockReason) || (cand && cand.finishReason) || 'бос жауап';
-    throw new Error('Жауап алынбады: ' + why);
+    const why = (json.promptFeedback && json.promptFeedback.blockReason) || (cand && cand.finishReason) || e('empty');
+    throw new Error(e('noAnswer') + why);
   }
   return text;
 }
