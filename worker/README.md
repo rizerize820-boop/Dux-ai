@@ -1,4 +1,4 @@
-# Dux AI Cloudflare Worker
+# Dux AI Cloudflare worker
 
 This folder is a separate Cloudflare Worker API. It does not build or deploy the Expo app.
 
