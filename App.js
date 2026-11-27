@@ -1014,9 +1014,9 @@ function Main() {
 
               <View style={s.card}>
                 <Text style={s.cardTitle}>{tr.usageToday}</Text>
-                <Text style={s.usageNum}>{used} / {limit}</Text>
+                <Text style={s.usageNum}>{dev ? used + ' / ∞' : used + ' / ' + limit}</Text>
                 <View style={s.bar2}>
-                  <View style={[s.bar2Fill, { width: Math.min(100, (used / limit) * 100) + '%', backgroundColor: used / limit > 0.9 ? C.danger : premium ? C.gold : C.accent }]} />
+                  <View style={[s.bar2Fill, { width: dev ? '100%' : Math.min(100, (used / limit) * 100) + '%', backgroundColor: !dev && used / limit > 0.9 ? C.danger : premium ? C.gold : C.accent }]} />
                 </View>
                 <Text style={s.cardHint}>{tr.resetNote}</Text>
               </View>
