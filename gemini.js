@@ -151,3 +151,39 @@ export async function askGemini(apiKey, allMessages, userName, premium) {
   }
   return askGoogle(apiKey, messages, userName, false);
 }
+
+// Дауысты мәтінге айналдыру (Gemini аудионы тікелей түсінеді)
+export async function transcribeAudio(apiKey, base64, mimeType) {
+  if (!apiKey) throw new Error(e('noKey'));
+  const body = JSON.stringify({
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType: mimeType, data: base64 } },
+          { text: 'Transcribe this audio exactly as spoken, in its original language. Output only the transcript text, nothing else.' },
+        ],
+      },
+    ],
+    generationConfig: { maxOutputTokens: 2048 },
+  });
+  let lastError = e('unknown');
+  for (const model of [...FREE_MODELS, ...PRO_MODELS]) {
+    const res = await fetch(endpoint(model), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: body,
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const parts = json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts;
+      const text = parts ? parts.map((p) => p.text || '').join('').trim() : '';
+      if (text) return text;
+      lastError = e('empty');
+      continue;
+    }
+    lastError = (json.error && json.error.message) || e('server') + res.status;
+    if (![429, 404, 503].includes(res.status)) break;
+  }
+  throw new Error(lastError);
+}

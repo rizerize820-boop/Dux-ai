@@ -24,6 +24,12 @@
     },
     "plugins": [
       [
+        "expo-audio",
+        {
+          "microphonePermission": "Dux AI дауыспен сұрақ қою үшін микрофонды қолданады"
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Dux AI фото мен видеоны талдау үшін галереяға қол жеткізуді сұрайды",

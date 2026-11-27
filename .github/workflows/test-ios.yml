@@ -21,7 +21,7 @@ jobs:
           cp ../src/App.js ../src/gemini.js ../src/config.js ../src/supabase.js ../src/app.json .
           rm -rf assets && cp -r ../src/assets ./assets
           npm install
-          npx expo install expo-image-picker expo-document-picker @react-native-async-storage/async-storage react-native-safe-area-context react-native-screens @expo/vector-icons @supabase/supabase-js react-native-url-polyfill expo-clipboard expo-font
+          npx expo install expo-image-picker expo-document-picker @react-native-async-storage/async-storage react-native-safe-area-context react-native-screens @expo/vector-icons @supabase/supabase-js react-native-url-polyfill expo-clipboard expo-font expo-audio
           npx expo prebuild --platform ios
       - name: Build for simulator
         working-directory: app/ios

@@ -9,8 +9,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Clipboard from 'expo-clipboard';
+import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from 'expo-audio';
 import { Ionicons } from '@expo/vector-icons';
-import { askGemini, setGeminiLang } from './gemini';
+import { askGemini, setGeminiLang, transcribeAudio } from './gemini';
 import { BUY_URL } from './config';
 import { supabase, configured } from './supabase';
 
@@ -76,7 +77,7 @@ const STR = {
     hello: 'Сәлем', helloHint: 'Сұрақ қойыңыз немесе фото, видео, файл жіберіңіз',
     preparing: 'Файл дайындалуда...', msgPh: 'Хабарлама жазыңыз...',
     recent: 'Соңғы чаттар', noChats: 'Әзірше чат жоқ',
-    camera: 'Камера', gallery: 'Галерея (фото, видео)', fileOpt: 'Файл (PDF, TXT)',
+    camera: 'Фото түсіру', videoOpt: 'Видео жазу', gallery: 'Галерея (фото, видео)', fileOpt: 'Файл (PDF, TXT)', micPerm: 'Микрофонға рұқсат керек', micRec: 'Жазылуда… тоқтату үшін басыңыз', micWork: 'Дауыс мәтінге айналуда…', micFail: 'Дауысты тану мүмкін болмады',
     settings: 'Баптаулар', usageToday: 'Бүгінгі қолдану', resetNote: 'Лимит әр күні түнгі 00:00-де жаңарады',
     perk1: (p, f) => '• Күніне ' + p + ' сұрақ (тегін: ' + f + ')',
     perk2: '• Ең күшті модель: дәл жауап, күрделі код', perk3: '• Ұзын, толық жауаптар',
@@ -114,7 +115,7 @@ const STR = {
     hello: 'Привет', helloHint: 'Задайте вопрос или отправьте фото, видео, файл',
     preparing: 'Подготовка файла...', msgPh: 'Напишите сообщение...',
     recent: 'Недавние чаты', noChats: 'Пока нет чатов',
-    camera: 'Камера', gallery: 'Галерея (фото, видео)', fileOpt: 'Файл (PDF, TXT)',
+    camera: 'Сделать фото', videoOpt: 'Записать видео', gallery: 'Галерея (фото, видео)', fileOpt: 'Файл (PDF, TXT)', micPerm: 'Нужен доступ к микрофону', micRec: 'Идёт запись… нажмите, чтобы остановить', micWork: 'Распознаю голос…', micFail: 'Не удалось распознать голос',
     settings: 'Настройки', usageToday: 'Использовано сегодня', resetNote: 'Лимит обновляется каждый день в 00:00',
     perk1: (p, f) => '• ' + p + ' вопросов в день (бесплатно: ' + f + ')',
     perk2: '• Самая сильная модель: точные ответы, сложный код', perk3: '• Длинные, подробные ответы',
@@ -152,7 +153,7 @@ const STR = {
     hello: 'Hello', helloHint: 'Ask a question or send a photo, video or file',
     preparing: 'Preparing file...', msgPh: 'Type a message...',
     recent: 'Recent chats', noChats: 'No chats yet',
-    camera: 'Camera', gallery: 'Gallery (photo, video)', fileOpt: 'File (PDF, TXT)',
+    camera: 'Take photo', videoOpt: 'Record video', micPerm: 'Microphone access is required', micRec: 'Recording… tap to stop', micWork: 'Transcribing voice…', micFail: 'Could not recognize the voice', gallery: 'Gallery (photo, video)', fileOpt: 'File (PDF, TXT)',
     settings: 'Settings', usageToday: 'Used today', resetNote: 'The limit resets every day at 00:00',
     perk1: (p, f) => '• ' + p + ' questions a day (free: ' + f + ')',
     perk2: '• Strongest model: accurate answers, complex code', perk3: '• Long, detailed answers',
@@ -318,6 +319,11 @@ function Main() {
   const [ready, setReady] = useState(false);
   const [file, setFile] = useState(null);
   const [sheet, setSheet] = useState(false);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const [recording, setRecording] = useState(false);
+  const [recSec, setRecSec] = useState(0);
+  const [transcribing, setTranscribing] = useState(false);
+  const recTimer = useRef(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [session, setSession] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -589,7 +595,7 @@ function Main() {
     setFile(picked);
   };
 
-  const pickMedia = async (camera) => {
+  const pickMedia = async (camera, kind) => {
     try {
       if (camera) {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -597,7 +603,7 @@ function Main() {
       }
       const open = camera ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
       const result = await open({
-        mediaTypes: ['images', 'videos'],
+        mediaTypes: kind === 'video' ? ['videos'] : kind === 'photo' ? ['images'] : ['images', 'videos'],
         base64: true,
         quality: 0.6,
         videoMaxDuration: 60,
@@ -621,6 +627,37 @@ function Main() {
       Alert.alert(tr.error, e.message);
     } finally {
       setPicking(false);
+    }
+  };
+
+  const toggleMic = async () => {
+    if (transcribing || loading) return;
+    try {
+      if (!recording) {
+        const perm = await requestRecordingPermissionsAsync();
+        if (!perm.granted) return Alert.alert(tr.micPerm);
+        await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+        await recorder.prepareToRecordAsync();
+        recorder.record();
+        setRecSec(0);
+        setRecording(true);
+        recTimer.current = setInterval(() => setRecSec((n) => n + 1), 1000);
+        return;
+      }
+      clearInterval(recTimer.current);
+      setRecording(false);
+      await recorder.stop();
+      await setAudioModeAsync({ allowsRecording: false });
+      const uri = recorder.uri;
+      if (!uri) return;
+      setTranscribing(true);
+      const data = await readBase64(uri);
+      const text = await transcribeAudio(API_KEY, data, 'audio/mp4');
+      if (text) setInput((p) => (p ? p + ' ' : '') + text);
+    } catch (err) {
+      Alert.alert(tr.micFail, err && err.message ? err.message : '');
+    } finally {
+      setTranscribing(false);
     }
   };
 
@@ -872,6 +909,14 @@ function Main() {
           </View>
         )}
 
+        {(recording || transcribing) && (
+          <View style={s.recBanner}>
+            {transcribing ? <ActivityIndicator color={C.accent} /> : <View style={s.recDot} />}
+            <Text style={s.recText}>
+              {transcribing ? tr.micWork : tr.micRec + '  ' + Math.floor(recSec / 60) + ':' + String(recSec % 60).padStart(2, '0')}
+            </Text>
+          </View>
+        )}
         <View style={s.bar}>
           <View style={s.inputWrap}>
             <TouchableOpacity style={s.plusBtn} onPress={() => setSheet(true)} disabled={loading}>
@@ -885,6 +930,11 @@ function Main() {
               placeholder={tr.msgPh}
               placeholderTextColor={C.muted}
             />
+            {!canSend || recording ? (
+              <TouchableOpacity style={[s.micBtn, recording && s.micOn]} onPress={toggleMic} disabled={transcribing}>
+                <Ionicons name={recording ? 'stop' : 'mic'} size={20} color={recording ? '#fff' : C.accent} />
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               style={[s.sendBtn, !canSend && s.sendOff]}
               onPress={send}
@@ -976,16 +1026,20 @@ function Main() {
         <Pressable style={s.sheetBackdrop} onPress={() => setSheet(false)}>
           <Pressable style={s.sheet} onPress={() => {}}>
             <View style={s.grabber} />
-            <TouchableOpacity style={s.sheetRow} onPress={() => choose(() => pickMedia(true))}>
-              <Ionicons name="camera-outline" size={24} color={C.text} />
+            <TouchableOpacity style={s.sheetRow} onPress={() => choose(() => pickMedia(true, 'photo'))}>
+              <View style={s.sheetIcon}><Ionicons name="camera" size={22} color={C.accent} /></View>
               <Text style={s.sheetText}>{tr.camera}</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={s.sheetRow} onPress={() => choose(() => pickMedia(true, 'video'))}>
+              <View style={s.sheetIcon}><Ionicons name="videocam" size={22} color={C.accent} /></View>
+              <Text style={s.sheetText}>{tr.videoOpt}</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={s.sheetRow} onPress={() => choose(() => pickMedia(false))}>
-              <Ionicons name="images-outline" size={24} color={C.text} />
+              <View style={s.sheetIcon}><Ionicons name="images" size={22} color={C.accent} /></View>
               <Text style={s.sheetText}>{tr.gallery}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.sheetRow} onPress={() => choose(pickDocument)}>
-              <Ionicons name="document-outline" size={24} color={C.text} />
+              <View style={s.sheetIcon}><Ionicons name="document-text" size={22} color={C.accent} /></View>
               <Text style={s.sheetText}>{tr.fileOpt}</Text>
             </TouchableOpacity>
           </Pressable>
@@ -1180,6 +1234,12 @@ const s = StyleSheet.create({
   inputWrap: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, backgroundColor: C.surface, borderRadius: 26, borderWidth: 1, borderColor: C.border, padding: 5 },
   plusBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
   input: { flex: 1, color: C.text, fontSize: 16, maxHeight: 130, minHeight: 38, paddingVertical: 8, paddingHorizontal: 8 },
+  micBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
+  micOn: { backgroundColor: C.danger },
+  recBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 12, marginTop: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+  recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.danger },
+  recText: { color: C.text, fontSize: 14, flex: 1 },
+  sheetIcon: { width: 40, height: 40, borderRadius: 14, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
   sendBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
   sendOff: { backgroundColor: C.surface2, opacity: 0.5 },
 
