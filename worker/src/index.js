@@ -20,7 +20,7 @@ async function requireSupabaseUser(request, env) {
   if (!authorization.startsWith("Bearer ")) {
     return { error: json({ error: "Sign-in is required." }, 401) };
   }
-  const response = await fetch(env.SUPABASE_URL.replace(/\\/$/, "") + "/auth/v1/user", {
+  const response = await fetch(env.SUPABASE_URL.replace(/\/$/, "") + "/auth/v1/user", {
     headers: {
       Authorization: authorization,
       apikey: env.SUPABASE_ANON_KEY,
