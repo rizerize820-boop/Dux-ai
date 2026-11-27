@@ -1,0 +1,57 @@
+name: Test iOS (simulator)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-15-intel
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Create Expo project
+        run: |
+          npx create-expo-app@latest app --template blank@sdk-54 --no-install
+          cd app
+          cp ../src/App.js ../src/gemini.js ../src/config.js ../src/supabase.js ../src/app.json .
+          rm -rf assets && cp -r ../src/assets ./assets
+          npm install
+          npx expo install expo-image-picker expo-document-picker @react-native-async-storage/async-storage react-native-safe-area-context react-native-screens @expo/vector-icons @supabase/supabase-js react-native-url-polyfill expo-clipboard
+          npx expo prebuild --platform ios
+      - name: Build for simulator
+        working-directory: app/ios
+        run: |
+          WS=$(ls -d *.xcworkspace | head -1)
+          SCHEME="${WS%.xcworkspace}"
+          xcodebuild -workspace "$WS" -scheme "$SCHEME" -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
+      - name: Run in simulator
+        working-directory: app/ios
+        run: |
+          APP=$(ls -d build/Build/Products/Release-iphonesimulator/*.app | head -1)
+          echo "APP=$APP"
+          DEV=$(xcrun simctl list devices available | grep -m1 "iPhone" | grep -oE '[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}')
+          echo "DEVICE=$DEV"
+          xcrun simctl boot "$DEV"
+          xcrun simctl bootstatus "$DEV" -b
+          xcrun simctl install "$DEV" "$APP"
+          BID=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")
+          echo "BUNDLE=$BID"
+          xcrun simctl launch "$DEV" "$BID"
+          sleep 30
+          echo "=== RUNNING? ==="
+          xcrun simctl spawn "$DEV" launchctl list | grep -i "$BID" || echo "NOT RUNNING"
+          echo "=== CRASH REPORTS ==="
+          ls ~/Library/Logs/DiagnosticReports 2>/dev/null || echo none
+          for f in ~/Library/Logs/DiagnosticReports/*; do [ -f "$f" ] && head -c 3000 "$f"; done
+          echo "=== APP LOG ==="
+          xcrun simctl spawn "$DEV" log show --last 1m --style compact --predicate 'process == "DuxAI" OR process == "Dux AI" OR eventMessage CONTAINS "RCTFatal" OR eventMessage CONTAINS "javascript" OR eventMessage CONTAINS "Unhandled"' | tail -80
+          echo "=== BUNDLE ==="
+          ls -la "$APP" | head -30
+          find "$APP" -name "main.jsbundle" -exec ls -la {} \;
