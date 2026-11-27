@@ -12,11 +12,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
       - name: Create Expo Android project
         run: |
-          npx create-expo-app@latest app --template blank --no-install
+          npx create-expo-app@latest app --template blank@sdk-54 --no-install
           cp App.js gemini.js config.js supabase.js app.json eas.json app/
-          cp -r assets app/assets
+          mkdir -p app/assets
+          cp -r assets/. app/assets/
           cd app
           npm install
           npx expo install expo-image-picker expo-document-picker @react-native-async-storage/async-storage react-native-safe-area-context react-native-screens @expo/vector-icons @supabase/supabase-js react-native-url-polyfill expo-clipboard
