@@ -1,4 +1,4 @@
-# Dux AI Cloudflare Worker
+# Dux AI Cloudflare worker
 
 The Worker exposes `GET /health` and authenticated `POST /api/image`.
 
