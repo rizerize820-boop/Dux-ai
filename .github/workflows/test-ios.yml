@@ -43,15 +43,15 @@ jobs:
           xcrun simctl install "$DEV" "$APP"
           BID=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")
           echo "BUNDLE=$BID"
-          xcrun simctl launch "$DEV" "$BID"
+          xcrun simctl launch "$DEV" "$BID" || true
           sleep 30
           echo "=== RUNNING? ==="
           xcrun simctl spawn "$DEV" launchctl list | grep -i "$BID" || echo "NOT RUNNING"
           echo "=== CRASH REPORTS ==="
           ls ~/Library/Logs/DiagnosticReports 2>/dev/null || echo none
-          for f in ~/Library/Logs/DiagnosticReports/*; do [ -f "$f" ] && head -c 3000 "$f"; done
+          for f in ~/Library/Logs/DiagnosticReports/*.ips ~/Library/Logs/DiagnosticReports/*.crash; do [ -f "$f" ] && (echo "--- $f"; grep -E '"exception"|"termination"|"asi"|Exception|Termination|Application Specific|"symbol"' "$f" | head -40); done
           echo "=== APP LOG ==="
-          xcrun simctl spawn "$DEV" log show --last 1m --style compact --predicate 'process == "DuxAI" OR process == "Dux AI" OR eventMessage CONTAINS "RCTFatal" OR eventMessage CONTAINS "javascript" OR eventMessage CONTAINS "Unhandled"' | tail -80
+          xcrun simctl spawn "$DEV" log show --last 1m --style compact --predicate '(process == "DuxAI" AND (messageType == error OR messageType == fault)) OR eventMessage CONTAINS "RCTFatal" OR eventMessage CONTAINS "Unhandled" OR eventMessage CONTAINS "Cannot find native" OR eventMessage CONTAINS "javascript"' | tail -80
           echo "=== BUNDLE ==="
           ls -la "$APP" | head -30
           find "$APP" -name "main.jsbundle" -exec ls -la {} \;
