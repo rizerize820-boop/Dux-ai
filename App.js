@@ -180,6 +180,26 @@ let tr = STR.kk;
 const strip = (m) =>
   m.file ? { ...m, file: { name: m.file.name, mimeType: m.file.mimeType, uri: m.file.uri } } : m;
 
+const IMAGE_API = 'https://dux-ai.muhammedali8103.workers.dev';
+
+const isImagePrompt = (text) =>
+  /^(\\/image\\s+|нарисуй\\b|сгенерируй\\s+(картинку|изображение)|создай\\s+(картинку|изображение)|draw\\b|generate\\s+(an?\\s+)?image\\b|create\\s+(an?\\s+)?image\\b|make\\s+(an?\\s+)?picture\\b)/i.test(text.trim());
+
+async function generateImage(prompt, accessToken) {
+  const response = await fetch(IMAGE_API + '/api/image', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + accessToken,
+    },
+    body: JSON.stringify({ prompt: prompt.replace(/^\\/image\\s+/i, '').trim() }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Не удалось создать изображение');
+  if (!data.image) throw new Error('Сервер вернул пустое изображение');
+  return 'data:' + (data.mimeType || 'image/png') + ';base64,' + data.image;
+}
+
 const isImage = (f) => !!f && !!f.mimeType && f.mimeType.indexOf('image/') === 0;
 const isVideo = (f) => !!f && !!f.mimeType && f.mimeType.indexOf('video/') === 0;
 
@@ -736,8 +756,17 @@ function Main() {
     setFile(null);
     setLoading(true);
     try {
-      const answer = await askGemini(API_KEY, await withData(next), profile ? profile.name : '', q.premium);
-      upsert(id, (m) => m.concat([{ role: 'model', text: answer }]));
+      if (isImagePrompt(text)) {
+        const { data: authData, error: authError } = await supabase.auth.getSession();
+        if (authError || !authData.session || !authData.session.access_token) {
+          throw new Error('Сессия истекла. Войдите в аккаунт заново.');
+        }
+        const imageData = await generateImage(text, authData.session.access_token);
+        upsert(id, (m) => m.concat([{ role: 'model', text: 'Готово. Вот изображение:', imageData }]));
+      } else {
+        const answer = await askGemini(API_KEY, await withData(next), profile ? profile.name : '', q.premium);
+        upsert(id, (m) => m.concat([{ role: 'model', text: answer }]));
+      }
     } catch (e) {
       upsert(id, () => base);
       setInput(text);
@@ -772,10 +801,11 @@ function Main() {
       <View style={s.botRow}>
         <Image source={require('./assets/dux-icon.png')} style={s.botAvatar} />
         <View style={s.botBody}>
-          <RichText text={item.text} onCopy={copyText} copied={copied} />
-          <TouchableOpacity onPress={() => copyText(item.text)} hitSlop={10} style={s.copyBtn}>
+          <RichText text={item.text || ''} onCopy={copyText} copied={copied} />
+          {!!item.imageData && <Image source={{ uri: item.imageData }} style={s.generatedImage} resizeMode="contain" />}
+          {!!item.text && <TouchableOpacity onPress={() => copyText(item.text)} hitSlop={10} style={s.copyBtn}>
             <Ionicons name={copied === item.text ? 'checkmark' : 'copy-outline'} size={17} color={C.muted} />
-          </TouchableOpacity>
+          </TouchableOpacity>}
         </View>
       </View>
     );
@@ -1191,6 +1221,7 @@ const s = StyleSheet.create({
   },
   userText: { color: C.accentInk, fontSize: 16, lineHeight: 23, fontWeight: '500' },
   msgImage: { width: 220, height: 220, borderRadius: 14 },
+  generatedImage: { width: 280, height: 280, maxWidth: '100%', borderRadius: 14, backgroundColor: C.surface },
   fileRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   fileName: { color: C.accentInk, flexShrink: 1, fontWeight: '500' },
   thumbIcon: { backgroundColor: C.surface, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
