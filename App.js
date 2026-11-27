@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Component, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, Animated, BackHandler, Dimensions, FlatList, Image,
   Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput,
@@ -361,6 +361,15 @@ function Main() {
     setLang(l);
     AsyncStorage.setItem(LANG, l).catch(() => {});
   };
+
+  // Ештеңе қатып қалмауы үшін: 5 сек кейін экранды мәжбүрлеп ашамыз
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setAuthReady(true);
+      setReady(true);
+    }, 5000);
+    return () => clearTimeout(t);
+  }, []);
 
   // Аккаунт сессиясы (Supabase)
   useEffect(() => {
@@ -1083,11 +1092,31 @@ function Main() {
   );
 }
 
+class Boundary extends Component {
+  state = { err: null };
+  static getDerivedStateFromError(err) { return { err }; }
+  render() {
+    if (this.state.err) {
+      return (
+        <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 24, paddingTop: 80 }}>
+          <Text style={{ color: C.text, fontSize: 20, fontWeight: '700' }}>Dux AI error</Text>
+          <Text selectable style={{ color: C.danger, marginTop: 12 }}>{String(this.state.err && (this.state.err.stack || this.state.err.message || this.state.err))}</Text>
+        </ScrollView>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <Main />
-    </SafeAreaProvider>
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Boundary>
+        <SafeAreaProvider>
+          <Main />
+        </SafeAreaProvider>
+      </Boundary>
+    </View>
   );
 }
 
