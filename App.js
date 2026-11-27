@@ -652,7 +652,7 @@ function Main() {
       if (!uri) return;
       setTranscribing(true);
       const data = await readBase64(uri);
-      const text = await transcribeAudio(API_KEY, data, 'audio/mp4');
+      const text = await transcribeAudio(API_KEY, data, 'audio/mp4', uri);
       if (text) setInput((p) => (p ? p + ' ' : '') + text);
     } catch (err) {
       Alert.alert(tr.micFail, err && err.message ? err.message : '');

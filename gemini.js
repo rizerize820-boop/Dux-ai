@@ -153,7 +153,30 @@ export async function askGemini(apiKey, allMessages, userName, premium) {
 }
 
 // Дауысты мәтінге айналдыру (Gemini аудионы тікелей түсінеді)
-export async function transcribeAudio(apiKey, base64, mimeType) {
+async function transcribeGroq(uri) {
+  const form = new FormData();
+  form.append('file', { uri: uri, name: 'voice.m4a', type: 'audio/m4a' });
+  form.append('model', 'whisper-large-v3-turbo');
+  form.append('response_format', 'json');
+  const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + GROQ_KEY },
+    body: form,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((json.error && json.error.message) || e('server') + res.status);
+  return (json.text || '').trim();
+}
+
+export async function transcribeAudio(apiKey, base64, mimeType, uri) {
+  if (GROQ_KEY && uri) {
+    try {
+      const t = await transcribeGroq(uri);
+      if (t) return t;
+    } catch (err) {
+      console.log('groq stt: ' + err.message);
+    }
+  }
   if (!apiKey) throw new Error(e('noKey'));
   const body = JSON.stringify({
     contents: [
