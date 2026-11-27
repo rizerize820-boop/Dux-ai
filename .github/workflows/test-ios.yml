@@ -30,7 +30,7 @@ jobs:
           SCHEME="${WS%.xcworkspace}"
           xcodebuild -workspace "$WS" -scheme "$SCHEME" -configuration Release \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build > /tmp/xcb.log 2>&1; tail -5 /tmp/xcb.log; echo '=== EMBED/FRAMEWORK LINES ==='; grep -iE 'embed pods|Frameworks/|React.framework|prebuilt|Embed' /tmp/xcb.log | sort | uniq | head -40; echo '=== PODS ==='; grep -E 'React-Core|ReactNativeDependencies|hermes|ExpoAudio|expo-audio|React-Core-prebuilt' Podfile.lock | head -20; grep -n 'prebuilt\|buildReactNativeFromSource\|RCT_USE' Podfile ../package.json Podfile.properties.json 2>/dev/null | head
       - name: Run in simulator
         working-directory: app/ios
         run: |
