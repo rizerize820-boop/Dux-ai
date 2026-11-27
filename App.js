@@ -189,9 +189,9 @@ const isImagePrompt = (text) => {
   // Also recognize pasted image prompts that contain an explicit generation
   // instruction, or begin directly with a photorealistic image description.
   const hasGenerationIntent = value.length > 80 &&
-    /\\b(?:generate|create|make|draw|render|produce)\\b[\\s\\S]{0,120}\\b(?:image|picture|photo|photograph|illustration)\\b/i.test(value);
+    /\b(?:generate|create|make|draw|render|produce)\b[\s\S]{0,120}\b(?:image|picture|photo|photograph|illustration)\b/i.test(value);
   const startsAsImageDescription =
-    /^(?:a|an)\\s+(?:(?:hyper[- ]?realistic|photorealistic|photo[- ]?realistic|cinematic|professional)\\s+){0,3}(?:photo|photograph|image|picture|illustration)\\b/i.test(value);
+    /^(?:a|an)\s+(?:(?:hyper[- ]?realistic|photorealistic|photo[- ]?realistic|cinematic|professional)\s+){0,3}(?:photo|photograph|image|picture|illustration)\b/i.test(value);
 
   return hasGenerationIntent || startsAsImageDescription;
 };
