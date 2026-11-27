@@ -340,6 +340,7 @@ function Main() {
   const active = chats.find((c) => c.id === activeId);
   const messages = active ? active.messages : [];
   const premium = status.premium;
+  const dev = !!status.dev;
   const used = status.used;
   const limit = status.limit;
   const left = Math.max(0, limit - used);
@@ -672,7 +673,7 @@ function Main() {
       Alert.alert(tr.error, e.message);
       return;
     }
-    setStatus((p) => ({ ...p, used: q.used, limit: q.limit, premium: q.premium }));
+    setStatus((p) => ({ ...p, used: q.used, limit: q.limit, premium: q.premium, dev: !!q.dev }));
     if (!q.ok) {
       setLoading(false);
       Alert.alert(
@@ -953,7 +954,7 @@ function Main() {
                 <Text style={s.avatarText}>{profile ? profile.name.charAt(0).toUpperCase() : ''}</Text>
               </View>
               <Text style={s.profileName} numberOfLines={1}>{profile ? profile.name : ''}</Text>
-              <Text style={[s.badge, premium && s.badgePro]}>{premium ? 'PRO' : left + '/' + limit}</Text>
+              <Text style={[s.badge, premium && s.badgePro]}>{dev ? 'DEV' : premium ? 'PRO' : left + '/' + limit}</Text>
               <TouchableOpacity
                 onPress={() => {
                   closeDrawer();
@@ -1007,7 +1008,7 @@ function Main() {
                     <Text style={s.avatarText}>{profile ? profile.name.charAt(0).toUpperCase() : ''}</Text>
                   </View>
                   <Text style={s.profileName} numberOfLines={1}>{profile ? profile.name : ''}</Text>
-                  <Text style={[s.badge, premium && s.badgePro]}>{premium ? 'PREMIUM' : 'FREE'}</Text>
+                  <Text style={[s.badge, premium && s.badgePro]}>{dev ? 'DEVELOPER' : premium ? 'PREMIUM' : 'FREE'}</Text>
                 </View>
               </View>
 
