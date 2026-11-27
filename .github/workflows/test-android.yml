@@ -1,0 +1,52 @@
+name: Test Android APK (emulator)
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'ID запуска Build Android APK, откуда взять APK'
+        required: true
+        default: '45937515877'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: DuxAI-android-apk
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run app in emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            ls -la app-release.apk
+            adb install -r app-release.apk
+            adb logcat -c
+            adb shell monkey -p com.duxai.app -c android.intent.category.LAUNCHER 1
+            sleep 30
+            echo "=== PROCESS ALIVE? ==="
+            adb shell pidof com.duxai.app || echo "NOT RUNNING"
+            echo "=== LOGCAT (JS + crashes) ==="
+            adb logcat -d -s ReactNativeJS:V AndroidRuntime:E ReactNative:V DEBUG:E | tail -150
+            echo "=== SCREEN TEXTS ==="
+            adb shell uiautomator dump /sdcard/ui.xml
+            adb shell cat /sdcard/ui.xml | tr '>' '>\n' | grep -o 'text="[^"]*"' | grep -v 'text=""' | head -40
+            adb exec-out screencap -p > screen.png
