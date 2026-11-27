@@ -182,8 +182,19 @@ const strip = (m) =>
 
 const IMAGE_API = 'https://dux-ai.muhammedali8103.workers.dev';
 
-const isImagePrompt = (text) =>
-  /^(\/image\s+|нарисуй\b|сгенерируй\s+(картинку|изображение)|создай\s+(картинку|изображение)|draw\b|generate\s+(an?\s+)?image\b|create\s+(an?\s+)?image\b|make\s+(an?\s+)?picture\b)/i.test(text.trim());
+const isImagePrompt = (text) => {
+  const value = text.trim();
+  if (/^(\/image\s+|нарисуй\b|сгенерируй\s+(картинку|изображение)|создай\s+(картинку|изображение)|draw\b|generate\s+(an?\s+)?image\b|create\s+(an?\s+)?image\b|make\s+(an?\s+)?picture\b)/i.test(value)) return true;
+
+  // Also recognize pasted image prompts that contain an explicit generation
+  // instruction, or begin directly with a photorealistic image description.
+  const hasGenerationIntent = value.length > 80 &&
+    /\\b(?:generate|create|make|draw|render|produce)\\b[\\s\\S]{0,120}\\b(?:image|picture|photo|photograph|illustration)\\b/i.test(value);
+  const startsAsImageDescription =
+    /^(?:a|an)\\s+(?:(?:hyper[- ]?realistic|photorealistic|photo[- ]?realistic|cinematic|professional)\\s+){0,3}(?:photo|photograph|image|picture|illustration)\\b/i.test(value);
+
+  return hasGenerationIntent || startsAsImageDescription;
+};
 
 async function generateImage(prompt, accessToken) {
   const response = await fetch(IMAGE_API + '/api/image', {
