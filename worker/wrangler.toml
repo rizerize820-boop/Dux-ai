@@ -1,0 +1,9 @@
+name = "dux-ai"
+main = "src/index.js"
+compatibility_date = "2026-11-27"
+
+[observability]
+enabled = true
+
+[ai]
+binding = "AI"
