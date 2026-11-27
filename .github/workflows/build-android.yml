@@ -24,7 +24,7 @@ jobs:
           cp -r assets/. app/assets/
           cd app
           npm install
-          npx expo install expo-image-picker expo-document-picker @react-native-async-storage/async-storage react-native-safe-area-context react-native-screens @expo/vector-icons @supabase/supabase-js react-native-url-polyfill expo-clipboard
+          npx expo install expo-image-picker expo-document-picker @react-native-async-storage/async-storage react-native-safe-area-context react-native-screens @expo/vector-icons @supabase/supabase-js react-native-url-polyfill expo-clipboard expo-font
           printf "EXPO_PUBLIC_GEMINI_API_KEY=%s\n" "${{ secrets.GEMINI_API_KEY }}" > .env
           printf "EXPO_PUBLIC_GROQ_API_KEY=%s\n" "${{ secrets.GROQ_API_KEY }}" >> .env
       - name: Generate Android project
