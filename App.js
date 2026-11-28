@@ -15,7 +15,9 @@ import { askGemini, setGeminiLang, transcribeAudio } from './gemini';
 import { BUY_URL } from './config';
 import { supabase, configured } from './supabase';
 
-const API_KEY = 'AQ.Ab8RN6KdZxec7Bnx57y36WIBp3oWc0u6UL_j6xIZ96Av-7aumw';
+// ҚАУІПСІЗДІК: кілтті кодқа жазбаңыз. Оны .env файлына қойыңыз:
+// EXPO_PUBLIC_GEMINI_KEY=жаңа_кілт   (және .env файлын .gitignore-ға қосыңыз)
+const API_KEY = process.env.EXPO_PUBLIC_GEMINI_KEY || '';
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const CHATS = 'chats_v2';
 const LANG = 'lang_v1';
@@ -85,6 +87,7 @@ const STR = {
     premiumActive: 'Premium белсенді',
     premiumActiveMsg: (p) => 'Күніне ' + p + ' сұрақ және ең күшті модель қосулы.',
     until: 'Мерзімі', clearAll: 'Барлық чатты өшіру', logoutBtn: 'Аккаунттан шығу', language: 'Тіл',
+    chooseLang: 'Тілді таңдаңыз', codeTitle: 'Code', codeAsk: 'Қандай код керек?', codeRun: 'Код жазу',
   },
   ru: {
     suggestions: [
@@ -123,6 +126,7 @@ const STR = {
     premiumActive: 'Premium активен',
     premiumActiveMsg: (p) => p + ' вопросов в день и самая сильная модель включены.',
     until: 'Действует до', clearAll: 'Удалить все чаты', logoutBtn: 'Выйти из аккаунта', language: 'Язык',
+    chooseLang: 'Выберите язык', codeTitle: 'Code', codeAsk: 'Какой код нужен?', codeRun: 'Написать код',
   },
   en: {
     suggestions: [
@@ -161,6 +165,7 @@ const STR = {
     premiumActive: 'Premium is active',
     premiumActiveMsg: (p) => p + ' questions a day and the strongest model are on.',
     until: 'Valid until', clearAll: 'Delete all chats', logoutBtn: 'Sign out', language: 'Language',
+    chooseLang: 'Choose your language', codeTitle: 'Code', codeAsk: 'What code do you need?', codeRun: 'Write code',
   },
 };
 
@@ -339,6 +344,13 @@ function Main() {
   tr = STR[lang];
   setGeminiLang(lang);
   const [codeInput, setCodeInput] = useState('');
+  // Іске қосу кезеңі: loading -> lang (тек бірінші рет) -> logo -> app
+  const [stage, setStage] = useState('loading');
+  // Code беті
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [codePrompt, setCodePrompt] = useState('');
+  const [codeAnswer, setCodeAnswer] = useState('');
+  const [codeBusy, setCodeBusy] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
   const list = useRef(null);
   const chatsOwner = useRef(null);
@@ -355,14 +367,26 @@ function Main() {
     ? { name: (session.user.user_metadata && session.user.user_metadata.name) || session.user.email || tr.user }
     : null;
 
-  // Таңдалған тіл құрылғыда сақталады
+  // Таңдалған тіл құрылғыда сақталады. Тіл сақталмаған болса (бірінші ашу), тіл таңдау экраны шығады
   useEffect(() => {
     AsyncStorage.getItem(LANG)
       .then((l) => {
-        if (l && STR[l]) setLang(l);
+        if (l && STR[l]) {
+          setLang(l);
+          setStage('logo');
+        } else {
+          setStage('lang');
+        }
       })
-      .catch(() => {});
+      .catch(() => setStage('logo'));
   }, []);
+
+  // Логотип экраны 1.5 секунд тұрады, содан кейін қолданба ашылады
+  useEffect(() => {
+    if (stage !== 'logo') return;
+    const t = setTimeout(() => setStage('app'), 1500);
+    return () => clearTimeout(t);
+  }, [stage]);
 
   const chooseLang = (l) => {
     setLang(l);
@@ -748,6 +772,30 @@ function Main() {
     }
   };
 
+  // Code бетінде код жазу
+  const runCode = async () => {
+    const text = codePrompt.trim();
+    if (!text || codeBusy) return;
+    setCodeBusy(true);
+    try {
+      const { data: q, error } = await supabase.rpc('consume_request');
+      if (error) throw error;
+      setStatus((p) => ({ ...p, used: q.used, limit: q.limit, premium: q.premium, dev: !!q.dev }));
+      if (!q.ok) {
+        Alert.alert(tr.limitHit, q.premium ? tr.limitTomorrow : tr.limitFree(FREE_DAILY, PREMIUM_DAILY));
+        return;
+      }
+      const ask =
+        'Write clean, working code for this task. Reply with the code in fenced code blocks and a very short explanation.\n\n' + text;
+      const answer = await askGemini(API_KEY, [{ role: 'user', text: ask }], profile ? profile.name : '', q.premium);
+      setCodeAnswer(answer);
+    } catch (e) {
+      Alert.alert(tr.error, /Network request failed/i.test(e.message) ? tr.offline : e.message);
+    } finally {
+      setCodeBusy(false);
+    }
+  };
+
   const canSend = (input.trim().length > 0 || !!file) && !loading && !picking;
 
   const renderMessage = ({ item }) => {
@@ -948,6 +996,45 @@ function Main() {
     );
   }
 
+  // 1) Іске қосылып жатыр
+  if (stage === 'loading') return <View style={s.screen} />;
+
+  // 2) Бірінші ашқанда: тіл таңдау
+  if (stage === 'lang') {
+    return (
+      <SafeAreaView style={[s.screen, s.introWrap]}>
+        <Image source={require('./assets/dux-icon.png')} style={s.logo} />
+        <Text style={s.hello}>Dux AI</Text>
+        <Text style={s.hint}>Тілді таңдаңыз · Выберите язык · Choose language</Text>
+        <View style={s.langList}>
+          {LANGS.map((l) => (
+            <TouchableOpacity
+              key={l.id}
+              style={s.langItem}
+              onPress={() => {
+                chooseLang(l.id);
+                setStage('logo');
+              }}
+            >
+              <Text style={s.langItemText}>{l.label}</Text>
+              <Ionicons name="chevron-forward" size={20} color={C.muted} />
+            </TouchableOpacity>
+          ))}
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // 3) Логотип экраны
+  if (stage === 'logo') {
+    return (
+      <SafeAreaView style={[s.screen, s.introWrap]}>
+        <Image source={require('./assets/dux-icon.png')} style={s.splashLogo} />
+        <Text style={s.hello}>Dux AI</Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={s.screen}>
       {body}
@@ -974,8 +1061,19 @@ function Main() {
             </View>
 
             <TouchableOpacity style={s.newBtn} onPress={newChat} disabled={loading}>
-              <Ionicons name="add" size={22} color="#fff" />
+              <Ionicons name="add" size={22} color={C.accentInk} />
               <Text style={s.newBtnText}>{tr.newChat}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={s.codeNav}
+              onPress={() => {
+                closeDrawer();
+                setTimeout(() => setCodeOpen(true), 250);
+              }}
+            >
+              <Ionicons name="code-slash-outline" size={20} color={C.accent} />
+              <Text style={s.codeNavText}>{tr.codeTitle}</Text>
             </TouchableOpacity>
 
             <Text style={s.section}>{tr.recent}</Text>
@@ -1045,6 +1143,39 @@ function Main() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <Modal visible={codeOpen} animationType="slide" onRequestClose={() => setCodeOpen(false)}>
+        <SafeAreaProvider>
+          <SafeAreaView style={s.screen}>
+            <View style={s.header}>
+              <View style={s.iconBtn} />
+              <Text style={s.headerTitle}>{tr.codeTitle}</Text>
+              <TouchableOpacity style={s.iconBtn} onPress={() => setCodeOpen(false)}>
+                <Ionicons name="close" size={26} color={C.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={s.setList} keyboardShouldPersistTaps="handled">
+              <TextInput
+                style={s.codePrompt}
+                value={codePrompt}
+                onChangeText={setCodePrompt}
+                multiline
+                placeholder={tr.codeAsk}
+                placeholderTextColor={C.muted}
+              />
+              <TouchableOpacity
+                style={[s.newBtn, (codeBusy || !codePrompt.trim()) && s.sendOff]}
+                onPress={runCode}
+                disabled={codeBusy || !codePrompt.trim()}
+              >
+                {codeBusy ? <ActivityIndicator color={C.accentInk} /> : <Text style={s.newBtnText}>{tr.codeRun}</Text>}
+              </TouchableOpacity>
+              {!!codeAnswer && <RichText text={codeAnswer} onCopy={copyText} copied={copied} />}
+            </ScrollView>
+          </SafeAreaView>
+        </SafeAreaProvider>
+      </Modal>
+
       <Modal visible={settings} animationType="slide" onRequestClose={() => setSettings(false)}>
         <SafeAreaProvider>
           <SafeAreaView style={s.screen}>
@@ -1179,7 +1310,7 @@ const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
   flex: { flex: 1 },
 
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
   headerTitle: { flex: 1, color: C.text, fontSize: 17, fontWeight: '600', letterSpacing: -0.2, textAlign: 'center', paddingHorizontal: 8 },
   iconBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
 
@@ -1188,6 +1319,7 @@ const s = StyleSheet.create({
   userBubble: {
     alignSelf: 'flex-end', maxWidth: '82%', backgroundColor: C.accent,
     paddingHorizontal: 16, paddingVertical: 11, borderRadius: 22, borderBottomRightRadius: 6, gap: 8,
+    shadowColor: C.accent, shadowOpacity: 0.28, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3,
   },
   userText: { color: C.accentInk, fontSize: 16, lineHeight: 23, fontWeight: '500' },
   msgImage: { width: 220, height: 220, borderRadius: 14 },
@@ -1196,7 +1328,7 @@ const s = StyleSheet.create({
   thumbIcon: { backgroundColor: C.surface, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
 
   botRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', paddingRight: 8 },
-  botAvatar: { width: 28, height: 28, borderRadius: 9, marginTop: 2 },
+  botAvatar: { width: 30, height: 30, borderRadius: 10, marginTop: 2 },
   botBody: { flex: 1, gap: 6 },
   rich: { gap: 12 },
   botText: { color: C.text, fontSize: 16, lineHeight: 25 },
@@ -1217,11 +1349,11 @@ const s = StyleSheet.create({
 
   empty: { alignItems: 'flex-start', paddingTop: 36, gap: 10, paddingHorizontal: 4 },
   logo: { width: 56, height: 56, borderRadius: 16, marginBottom: 14 },
-  hello: { color: C.text, fontSize: 32, lineHeight: 38, fontWeight: '700', letterSpacing: -0.8 },
+  hello: { color: C.text, fontSize: 34, lineHeight: 40, fontWeight: '700', letterSpacing: -0.9 },
   hint: { color: C.muted, fontSize: 16, lineHeight: 23 },
   chips: { marginTop: 26, gap: 10, alignSelf: 'stretch' },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 16, padding: 14 },
-  chipIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 18, padding: 15 },
+  chipIcon: { width: 40, height: 40, borderRadius: 13, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
   chipText: { flex: 1, color: C.text, fontSize: 15.5, lineHeight: 21 },
 
   preview: {
@@ -1231,25 +1363,30 @@ const s = StyleSheet.create({
   previewName: { flex: 1, color: C.text },
 
   bar: { paddingHorizontal: 12, paddingTop: 6, paddingBottom: 10 },
-  inputWrap: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, backgroundColor: C.surface, borderRadius: 26, borderWidth: 1, borderColor: C.border, padding: 5 },
-  plusBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
-  input: { flex: 1, color: C.text, fontSize: 16, maxHeight: 130, minHeight: 38, paddingVertical: 8, paddingHorizontal: 8 },
-  micBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
+  inputWrap: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, backgroundColor: C.surface, borderRadius: 28, borderWidth: 1, borderColor: C.border, padding: 6 },
+  plusBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
+  input: { flex: 1, color: C.text, fontSize: 16, maxHeight: 130, minHeight: 40, paddingVertical: 9, paddingHorizontal: 8 },
+  micBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
   micOn: { backgroundColor: C.danger },
   recBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 12, marginTop: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
   recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.danger },
   recText: { color: C.text, fontSize: 14, flex: 1 },
   sheetIcon: { width: 40, height: 40, borderRadius: 14, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
-  sendBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
-  sendOff: { backgroundColor: C.surface2, opacity: 0.5 },
+  sendBtn: {
+    width: 40, height: 40, borderRadius: 20, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center',
+    shadowColor: C.accent, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
+  },
+  sendOff: { backgroundColor: C.surface2, opacity: 0.5, shadowOpacity: 0, elevation: 0 },
 
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
   drawer: { position: 'absolute', top: 0, bottom: 0, left: 0, backgroundColor: C.surface, paddingHorizontal: 14, paddingTop: 14, borderRightWidth: 1, borderRightColor: C.border },
   drawerHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 18, paddingHorizontal: 4 },
   drawerLogo: { width: 34, height: 34, borderRadius: 10 },
   drawerTitle: { color: C.text, fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
-  newBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: C.accent, borderRadius: 16, paddingVertical: 13 },
+  newBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: C.accent, borderRadius: 18, paddingVertical: 14 },
   newBtnText: { color: C.accentInk, fontSize: 16, fontWeight: '700' },
+  codeNav: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 13, paddingHorizontal: 14, marginTop: 10, borderRadius: 16, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+  codeNavText: { color: C.text, fontSize: 16, fontWeight: '600' },
   section: { color: C.muted, fontSize: 13, fontWeight: '600', marginTop: 22, marginBottom: 8, paddingHorizontal: 4 },
   noChats: { color: C.muted, paddingHorizontal: 4, paddingTop: 6 },
   chatItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 12, borderRadius: 14 },
@@ -1261,6 +1398,14 @@ const s = StyleSheet.create({
   loginBtn: { alignSelf: 'stretch' },
   authField: { alignSelf: 'stretch', backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, paddingHorizontal: 16 },
   authSwitch: { color: C.accent, fontSize: 15, marginTop: 6 },
+
+  introWrap: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, gap: 12 },
+  splashLogo: { width: 110, height: 110, borderRadius: 28, marginBottom: 16 },
+  langList: { alignSelf: 'stretch', gap: 10, marginTop: 20 },
+  langItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.surface, borderRadius: 18, borderWidth: 1, borderColor: C.border, paddingHorizontal: 20, paddingVertical: 17 },
+  langItemText: { color: C.text, fontSize: 18, fontWeight: '600' },
+
+  codePrompt: { color: C.text, fontSize: 16, minHeight: 110, maxHeight: 220, textAlignVertical: 'top', padding: 14, backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border },
 
   profileRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 4, borderTopWidth: 1, borderTopColor: C.border },
   avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
