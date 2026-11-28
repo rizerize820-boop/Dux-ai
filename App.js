@@ -17,7 +17,7 @@ import { supabase, configured } from './supabase';
 
 // ҚАУІПСІЗДІК: кілтті кодқа жазбаңыз. Оны .env файлына қойыңыз:
 // EXPO_PUBLIC_GEMINI_KEY=жаңа_кілт   (және .env файлын .gitignore-ға қосыңыз)
-const API_KEY = process.env.EXPO_PUBLIC_GEMINI_KEY || '';
+const API_KEY = process.env.EXPO_PUBLIC_GEMINI_KEY || process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const CHATS = 'chats_v2';
 const LANG = 'lang_v1';

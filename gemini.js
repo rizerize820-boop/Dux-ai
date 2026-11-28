@@ -118,6 +118,38 @@ async function askCompat(p, messages, userName, premium) {
   throw new Error(lastError);
 }
 
+// Фото үшін Groq vision (Gemini кілті жұмыс істемесе де фото талдайды)
+const VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+async function askGroqVision(messages, userName, premium) {
+  if (!GROQ_KEY) throw new Error('no groq key');
+  const isImg = (m) => m.file && m.file.data && /^image\//.test(m.file.mimeType || '');
+  let lastImg = -1;
+  messages.forEach((m, i) => { if (isImg(m)) lastImg = i; });
+  if (lastImg < 0) throw new Error('no image');
+  const msgs = [{ role: 'system', content: SYSTEM(userName, premium) }].concat(
+    messages.map((m, i) => {
+      const role = m.role === 'model' ? 'assistant' : 'user';
+      if (i === lastImg) {
+        return { role, content: [
+          { type: 'text', text: m.text || 'Describe this image.' },
+          { type: 'image_url', image_url: { url: 'data:' + m.file.mimeType + ';base64,' + m.file.data } },
+        ] };
+      }
+      return { role, content: (m.file ? '[Файл: ' + m.file.name + '] ' : '') + (m.text || '') };
+    })
+  );
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + GROQ_KEY },
+    body: JSON.stringify({ model: VISION_MODEL, max_tokens: premium ? 4096 : 1024, messages: msgs }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error('Groq: ' + ((json.error && json.error.message) || res.status));
+  const text = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
+  if (!text) throw new Error('Groq: empty');
+  return text;
+}
+
 // Тегін: мәтін — Cerebras/Groq, содан кейін Gemini (жеңіл). Premium: Gemini (күшті), қате болса — Cerebras/Groq
 export async function askGemini(apiKey, allMessages, userName, premium) {
   // Тек соңғы 20 хабарлама жіберіледі: жылдамырақ және квота аз кетеді
@@ -139,7 +171,10 @@ export async function askGemini(apiKey, allMessages, userName, premium) {
     try {
       return await askGoogle(apiKey, messages, userName, true);
     } catch (e) {
-      if (hasFile) throw e;
+      if (hasFile) {
+        try { return await askGroqVision(messages, userName, true); } catch (e2) { console.log(e2.message); }
+        throw e;
+      }
       const r = await viaCompat();
       if (r) return r;
       throw e;
@@ -148,6 +183,14 @@ export async function askGemini(apiKey, allMessages, userName, premium) {
   if (!hasFile) {
     const r = await viaCompat();
     if (r) return r;
+  }
+  if (hasFile) {
+    try {
+      return await askGoogle(apiKey, messages, userName, false);
+    } catch (e) {
+      try { return await askGroqVision(messages, userName, false); } catch (e2) { console.log(e2.message); }
+      throw e;
+    }
   }
   return askGoogle(apiKey, messages, userName, false);
 }
