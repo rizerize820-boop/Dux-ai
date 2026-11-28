@@ -87,7 +87,7 @@ const STR = {
     premiumActive: 'Premium белсенді',
     premiumActiveMsg: (p) => 'Күніне ' + p + ' сұрақ және ең күшті модель қосулы.',
     until: 'Мерзімі', clearAll: 'Барлық чатты өшіру', logoutBtn: 'Аккаунттан шығу', language: 'Тіл',
-    chooseLang: 'Тілді таңдаңыз', codeTitle: 'Code', codeAsk: 'Қандай код керек?', codeRun: 'Код жазу',
+    chooseLang: 'Тілді таңдаңыз', codeTitle: 'Code', codeAsk: 'Қандай код керек?', codeRun: 'Код жазу', imgTitle: 'Сурет', imgAsk: 'Қандай сурет салу керек? (мысалы: күн батқан тау)', imgRun: 'Сурет жасау', imgFail: 'Сурет жүктелмеді. Қайталап көріңіз',
   },
   ru: {
     suggestions: [
@@ -126,7 +126,7 @@ const STR = {
     premiumActive: 'Premium активен',
     premiumActiveMsg: (p) => p + ' вопросов в день и самая сильная модель включены.',
     until: 'Действует до', clearAll: 'Удалить все чаты', logoutBtn: 'Выйти из аккаунта', language: 'Язык',
-    chooseLang: 'Выберите язык', codeTitle: 'Code', codeAsk: 'Какой код нужен?', codeRun: 'Написать код',
+    chooseLang: 'Выберите язык', codeTitle: 'Code', codeAsk: 'Какой код нужен?', codeRun: 'Написать код', imgTitle: 'Картинки', imgAsk: 'Что нарисовать? (например: горы на закате)', imgRun: 'Создать картинку', imgFail: 'Картинка не загрузилась. Попробуйте ещё раз',
   },
   en: {
     suggestions: [
@@ -165,7 +165,7 @@ const STR = {
     premiumActive: 'Premium is active',
     premiumActiveMsg: (p) => p + ' questions a day and the strongest model are on.',
     until: 'Valid until', clearAll: 'Delete all chats', logoutBtn: 'Sign out', language: 'Language',
-    chooseLang: 'Choose your language', codeTitle: 'Code', codeAsk: 'What code do you need?', codeRun: 'Write code',
+    chooseLang: 'Choose your language', codeTitle: 'Code', codeAsk: 'What code do you need?', codeRun: 'Write code', imgTitle: 'Images', imgAsk: 'What should I draw? (e.g. mountains at sunset)', imgRun: 'Create image', imgFail: 'The image failed to load. Try again',
   },
 };
 
@@ -351,6 +351,11 @@ function Main() {
   const [codePrompt, setCodePrompt] = useState('');
   const [codeAnswer, setCodeAnswer] = useState('');
   const [codeBusy, setCodeBusy] = useState(false);
+  // Сурет жасау беті
+  const [imgOpen, setImgOpen] = useState(false);
+  const [imgPrompt, setImgPrompt] = useState('');
+  const [imgUrl, setImgUrl] = useState('');
+  const [imgBusy, setImgBusy] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
   const list = useRef(null);
   const chatsOwner = useRef(null);
@@ -772,6 +777,29 @@ function Main() {
     }
   };
 
+  // Сурет жасау (Pollinations — тегін, кілтсіз)
+  const makeImage = async () => {
+    const text = imgPrompt.trim();
+    if (!text || imgBusy) return;
+    setImgBusy(true);
+    setImgUrl('');
+    try {
+      const { data: q, error } = await supabase.rpc('consume_request');
+      if (error) throw error;
+      setStatus((p) => ({ ...p, used: q.used, limit: q.limit, premium: q.premium, dev: !!q.dev }));
+      if (!q.ok) {
+        setImgBusy(false);
+        Alert.alert(tr.limitHit, q.premium ? tr.limitTomorrow : tr.limitFree(FREE_DAILY, PREMIUM_DAILY));
+        return;
+      }
+      const seed = Math.floor(Math.random() * 1000000);
+      setImgUrl('https://image.pollinations.ai/prompt/' + encodeURIComponent(text) + '?width=1024&height=1024&nologo=true&model=flux&seed=' + seed);
+    } catch (e) {
+      setImgBusy(false);
+      Alert.alert(tr.error, /Network request failed/i.test(e.message) ? tr.offline : e.message);
+    }
+  };
+
   // Code бетінде код жазу
   const runCode = async () => {
     const text = codePrompt.trim();
@@ -1076,6 +1104,17 @@ function Main() {
               <Text style={s.codeNavText}>{tr.codeTitle}</Text>
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={[s.codeNav, { marginTop: 8 }]}
+              onPress={() => {
+                closeDrawer();
+                setTimeout(() => setImgOpen(true), 250);
+              }}
+            >
+              <Ionicons name="image-outline" size={20} color={C.accent} />
+              <Text style={s.codeNavText}>{tr.imgTitle}</Text>
+            </TouchableOpacity>
+
             <Text style={s.section}>{tr.recent}</Text>
             <FlatList
               data={chats}
@@ -1142,6 +1181,45 @@ function Main() {
             </TouchableOpacity>
           </Pressable>
         </Pressable>
+      </Modal>
+
+      <Modal visible={imgOpen} animationType="slide" onRequestClose={() => setImgOpen(false)}>
+        <SafeAreaProvider>
+          <SafeAreaView style={s.screen}>
+            <View style={s.header}>
+              <View style={s.iconBtn} />
+              <Text style={s.headerTitle}>{tr.imgTitle}</Text>
+              <TouchableOpacity style={s.iconBtn} onPress={() => setImgOpen(false)}>
+                <Ionicons name="close" size={26} color={C.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={s.setList} keyboardShouldPersistTaps="handled">
+              <TextInput
+                style={s.codePrompt}
+                value={imgPrompt}
+                onChangeText={setImgPrompt}
+                multiline
+                placeholder={tr.imgAsk}
+                placeholderTextColor={C.muted}
+              />
+              <TouchableOpacity
+                style={[s.newBtn, (imgBusy || !imgPrompt.trim()) && s.sendOff]}
+                onPress={makeImage}
+                disabled={imgBusy || !imgPrompt.trim()}
+              >
+                {imgBusy ? <ActivityIndicator color={C.accentInk} /> : <Text style={s.newBtnText}>{tr.imgRun}</Text>}
+              </TouchableOpacity>
+              {!!imgUrl && (
+                <Image
+                  source={{ uri: imgUrl }}
+                  style={{ width: '100%', aspectRatio: 1, borderRadius: 18, backgroundColor: C.surface }}
+                  onLoadEnd={() => setImgBusy(false)}
+                  onError={() => { setImgBusy(false); setImgUrl(''); Alert.alert(tr.error, tr.imgFail); }}
+                />
+              )}
+            </ScrollView>
+          </SafeAreaView>
+        </SafeAreaProvider>
       </Modal>
 
       <Modal visible={codeOpen} animationType="slide" onRequestClose={() => setCodeOpen(false)}>
