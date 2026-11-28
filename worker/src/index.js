@@ -45,7 +45,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/health" && request.method === "GET") {
-      return json({ ok: true, service: "dux-ai" });
+      return json({ ok: true, service: "dux-ai", config: { SUPABASE_URL: !!env.SUPABASE_URL, SUPABASE_ANON_KEY: !!env.SUPABASE_ANON_KEY, AI: !!env.AI } });
     }
 
     if (url.pathname === "/api/image" && request.method === "POST") {
