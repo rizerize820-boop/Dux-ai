@@ -14,13 +14,13 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.duxai.app",
+      "bundleIdentifier": "com.dux.ai",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.duxai.app"
+      "package": "com.dux.ai"
     },
     "plugins": [
       [
