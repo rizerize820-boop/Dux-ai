@@ -1,10 +1,10 @@
 import { Component, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Animated, BackHandler, Dimensions, FlatList, Image,
-  Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput,
-  TouchableOpacity, View,
+  ActivityIndicator, Alert, Animated, Appearance, BackHandler, Dimensions, FlatList, Image,
+  Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Share, StatusBar,
+  StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -21,6 +21,8 @@ const API_KEY = process.env.EXPO_PUBLIC_GEMINI_KEY || process.env.EXPO_PUBLIC_GE
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const CHATS = 'chats_v2';
 const LANG = 'lang_v1';
+const THEME_KEY = 'theme_v1';
+const MODEL_KEY = 'model_v1';
 const OLD_HISTORY = 'chat_history';
 const FREE_DAILY = 50;
 const PREMIUM_DAILY = 500;
@@ -29,25 +31,54 @@ const MAX_BASE64 = 17 * 1024 * 1024;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
 const DRAWER_W = Math.min(330, Dimensions.get('window').width * 0.84);
 
-const C = {
-  bg: '#0A101D',
-  surface: '#111A2C',
-  surface2: '#192640',
-  border: '#243453',
-  text: '#EAF0FA',
-  muted: '#8696B3',
-  accent: '#2FC4E0',
-  accentInk: '#04222B',
-  gold: '#F2C14E',
-  goldInk: '#2B2005',
-  danger: '#FF6B6B',
+// Екі тақырып: қараңғы және ашық
+const THEMES = {
+  dark: {
+    bg: '#0A101D',
+    surface: '#111A2C',
+    surface2: '#192640',
+    border: '#243453',
+    text: '#EAF0FA',
+    muted: '#8696B3',
+    accent: '#2FC4E0',
+    accentInk: '#04222B',
+    gold: '#F2C14E',
+    goldInk: '#2B2005',
+    danger: '#FF6B6B',
+    codeBg: '#070B14',
+    codeInk: '#CFE3F5',
+    inlineInk: '#F2C14E',
+  },
+  light: {
+    bg: '#F4F7FB',
+    surface: '#FFFFFF',
+    surface2: '#E7EDF6',
+    border: '#D3DCEA',
+    text: '#0E1726',
+    muted: '#5D6D88',
+    accent: '#0E9FBC',
+    accentInk: '#FFFFFF',
+    gold: '#F2C14E',
+    goldInk: '#2B2005',
+    danger: '#E5484D',
+    codeBg: '#EEF2F8',
+    codeInk: '#1F3550',
+    inlineInk: '#8A5A00',
+  },
 };
+
+// Ағымдағы тақырып: Main әр рендерде жаңартады (tr сияқты)
+let C = THEMES.dark;
 
 const LANGS = [
   { id: 'kk', label: 'Қазақша' },
   { id: 'ru', label: 'Русский' },
   { id: 'en', label: 'English' },
 ];
+
+// Модельдер: gemini.js ішінде 'fast' және 'pro' кілттерін нақты модельге сәйкестендіріңіз
+const MODEL_IDS = ['auto', 'fast', 'pro'];
+const MODEL_ICON = { auto: 'sparkles-outline', fast: 'flash-outline', pro: 'rocket-outline' };
 
 const STR = {
   kk: {
@@ -88,6 +119,12 @@ const STR = {
     premiumActiveMsg: (p) => 'Күніне ' + p + ' сұрақ және ең күшті модель қосулы.',
     until: 'Мерзімі', clearAll: 'Барлық чатты өшіру', logoutBtn: 'Аккаунттан шығу', language: 'Тіл',
     chooseLang: 'Тілді таңдаңыз', codeTitle: 'Code', codeAsk: 'Қандай код керек?', codeRun: 'Код жазу', imgTitle: 'Сурет', imgAsk: 'Қандай сурет салу керек? (мысалы: күн батқан тау)', imgRun: 'Сурет жасау', imgFail: 'Сурет жүктелмеді. Қайталап көріңіз',
+    theme: 'Тақырып', dark: 'Қараңғы', light: 'Ашық',
+    modelTitle: 'Модель', modelAuto: 'Авто', modelAutoD: 'Тарифке қарай таңдалады', modelFast: 'Жылдам', modelFastD: 'Тез жауап береді',
+    modelPro: 'Күшті', modelProD: 'Күрделі тапсырмаларға (Premium)', proOnly: 'Күшті модель тек Premium-да қолжетімді',
+    stop: 'Тоқтату', regen: 'Қайта жасау',
+    search: 'Чаттардан іздеу', noMatch: 'Ештеңе табылмады', rename: 'Атын өзгерту', renameTitle: 'Чат атауы', save: 'Сақтау',
+    report: 'Қате туралы хабарлау', reportAsk: 'Не болды? Қатені сипаттаңыз', reportSend: 'Жіберу', reportEmpty: 'Қатені сипаттаңыз',
   },
   ru: {
     suggestions: [
@@ -127,6 +164,12 @@ const STR = {
     premiumActiveMsg: (p) => p + ' вопросов в день и самая сильная модель включены.',
     until: 'Действует до', clearAll: 'Удалить все чаты', logoutBtn: 'Выйти из аккаунта', language: 'Язык',
     chooseLang: 'Выберите язык', codeTitle: 'Code', codeAsk: 'Какой код нужен?', codeRun: 'Написать код', imgTitle: 'Картинки', imgAsk: 'Что нарисовать? (например: горы на закате)', imgRun: 'Создать картинку', imgFail: 'Картинка не загрузилась. Попробуйте ещё раз',
+    theme: 'Тема', dark: 'Тёмная', light: 'Светлая',
+    modelTitle: 'Модель', modelAuto: 'Авто', modelAutoD: 'Выбирается по тарифу', modelFast: 'Быстрая', modelFastD: 'Отвечает быстро',
+    modelPro: 'Мощная', modelProD: 'Для сложных задач (Premium)', proOnly: 'Мощная модель доступна только в Premium',
+    stop: 'Остановить', regen: 'Повторить',
+    search: 'Поиск по чатам', noMatch: 'Ничего не найдено', rename: 'Переименовать', renameTitle: 'Название чата', save: 'Сохранить',
+    report: 'Сообщить об ошибке', reportAsk: 'Что случилось? Опишите ошибку', reportSend: 'Отправить', reportEmpty: 'Опишите ошибку',
   },
   en: {
     suggestions: [
@@ -166,6 +209,12 @@ const STR = {
     premiumActiveMsg: (p) => p + ' questions a day and the strongest model are on.',
     until: 'Valid until', clearAll: 'Delete all chats', logoutBtn: 'Sign out', language: 'Language',
     chooseLang: 'Choose your language', codeTitle: 'Code', codeAsk: 'What code do you need?', codeRun: 'Write code', imgTitle: 'Images', imgAsk: 'What should I draw? (e.g. mountains at sunset)', imgRun: 'Create image', imgFail: 'The image failed to load. Try again',
+    theme: 'Theme', dark: 'Dark', light: 'Light',
+    modelTitle: 'Model', modelAuto: 'Auto', modelAutoD: 'Chosen by your plan', modelFast: 'Fast', modelFastD: 'Replies quickly',
+    modelPro: 'Pro', modelProD: 'For complex tasks (Premium)', proOnly: 'The Pro model is available on Premium only',
+    stop: 'Stop', regen: 'Regenerate',
+    search: 'Search chats', noMatch: 'Nothing found', rename: 'Rename', renameTitle: 'Chat name', save: 'Save',
+    report: 'Report a bug', reportAsk: 'What happened? Describe the bug', reportSend: 'Send', reportEmpty: 'Describe the bug',
   },
 };
 
@@ -180,6 +229,9 @@ const detectLang = () => {
 
 // Ағымдағы тіл: Main әр рендерде жаңартады, төмендегі компоненттер осыны оқиды
 let tr = STR.kk;
+
+const modelName = (id) => (id === 'fast' ? tr.modelFast : id === 'pro' ? tr.modelPro : tr.modelAuto);
+const modelDesc = (id) => (id === 'fast' ? tr.modelFastD : id === 'pro' ? tr.modelProD : tr.modelAutoD);
 
 // Файл мазмұны (data) жадта ғана тұрады, тарихқа аты мен түрі сақталады
 const strip = (m) =>
@@ -252,6 +304,21 @@ const withData = async (msgs) => {
   return out;
 };
 
+// Модель LaTeX жазып жіберсе, оны қарапайым мәтінге айналдырады (код блоктарына тиіспейді)
+const plainMath = (t) =>
+  t
+    .replace(/\\(?:left|right)\b/g, '')
+    .replace(/\\\(|\\\)|\\\[|\\\]|\$\$/g, '')
+    .replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '($1)/($2)')
+    .replace(/\\sqrt\s*\{([^{}]*)\}/g, '√($1)')
+    .replace(/\^\{([^{}]*)\}/g, '^($1)')
+    .replace(/_\{([^{}]*)\}/g, '_($1)')
+    .replace(/\\times\b/g, '×').replace(/\\cdot\b/g, '·').replace(/\\div\b/g, '÷')
+    .replace(/\\pm\b/g, '±').replace(/\\leq?\b/g, '≤').replace(/\\geq?\b/g, '≥')
+    .replace(/\\neq\b/g, '≠').replace(/\\approx\b/g, '≈').replace(/\\infty\b/g, '∞')
+    .replace(/\\pi\b/g, 'π').replace(/\\alpha\b/g, 'α').replace(/\\beta\b/g, 'β')
+    .replace(/\\theta\b/g, 'θ').replace(/\\Delta\b/g, 'Δ').replace(/\\(?:rightarrow|to)\b/g, '→');
+
 // **қалың** және `код` белгілерін өңдейді
 const inline = (str) =>
   str.split(/(\*\*[^*]+\*\*|`[^`]+`)/).map((p, i) => {
@@ -286,7 +353,7 @@ function RichText({ text, onCopy, copied }) {
           );
         }
         if (!part.trim()) return null;
-        const lines = part.trim().split('\n');
+        const lines = plainMath(part).trim().split('\n');
         return (
           <Text key={i} style={s.botText} selectable>
             {lines.map((ln, k) => {
@@ -347,6 +414,7 @@ function FileThumb({ file, size }) {
 }
 
 function Main() {
+  const insets = useSafeAreaInsets();
   const [chats, setChats] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [input, setInput] = useState('');
@@ -372,6 +440,12 @@ function Main() {
   const [settings, setSettings] = useState(false);
   const [copied, setCopied] = useState(null);
   const [lang, setLang] = useState(detectLang());
+  const [theme, setTheme] = useState(Appearance.getColorScheme() === 'light' ? 'light' : 'dark');
+  const [model, setModel] = useState('auto');
+  const [modelSheet, setModelSheet] = useState(false);
+  // Ағымдағы тақырып пен тілді глобалдарға жазамыз (төмендегі компоненттер осыны оқиды)
+  C = THEMES[theme];
+  s = STYLES[theme];
   tr = STR[lang];
   setGeminiLang(lang);
   const [codeInput, setCodeInput] = useState('');
@@ -387,9 +461,16 @@ function Main() {
   const [imgPrompt, setImgPrompt] = useState('');
   const [imgUrl, setImgUrl] = useState('');
   const [imgBusy, setImgBusy] = useState(false);
+  // Чат іздеу, атын өзгерту, қате туралы хабарлау
+  const [chatQuery, setChatQuery] = useState('');
+  const [renameId, setRenameId] = useState(null);
+  const [renameText, setRenameText] = useState('');
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportText, setReportText] = useState('');
   const progress = useRef(new Animated.Value(0)).current;
   const list = useRef(null);
   const chatsOwner = useRef(null);
+  const runRef = useRef(0);
 
   const active = chats.find((c) => c.id === activeId);
   const messages = active ? active.messages : [];
@@ -402,6 +483,10 @@ function Main() {
   const profile = session
     ? { name: (session.user.user_metadata && session.user.user_metadata.name) || session.user.email || tr.user }
     : null;
+  const topPad = Math.max(insets.top, Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0);
+  const shownChats = chatQuery.trim()
+    ? chats.filter((c) => c.title.toLowerCase().indexOf(chatQuery.trim().toLowerCase()) > -1)
+    : chats;
 
   // Таңдалған тіл құрылғыда сақталады. Тіл сақталмаған болса (бірінші ашу), тіл таңдау экраны шығады
   useEffect(() => {
@@ -417,6 +502,18 @@ function Main() {
       .catch(() => setStage('logo'));
   }, []);
 
+  // Тақырып пен модель таңдауы сақталады
+  useEffect(() => {
+    AsyncStorage.multiGet([THEME_KEY, MODEL_KEY])
+      .then((r) => {
+        const t = r[0][1];
+        const m = r[1][1];
+        if (t === 'light' || t === 'dark') setTheme(t);
+        if (m && MODEL_IDS.indexOf(m) > -1) setModel(m);
+      })
+      .catch(() => {});
+  }, []);
+
   // Логотип экраны 1.5 секунд тұрады, содан кейін қолданба ашылады
   useEffect(() => {
     if (stage !== 'logo') return;
@@ -427,6 +524,25 @@ function Main() {
   const chooseLang = (l) => {
     setLang(l);
     AsyncStorage.setItem(LANG, l).catch(() => {});
+  };
+
+  const chooseTheme = (t) => {
+    setTheme(t);
+    AsyncStorage.setItem(THEME_KEY, t).catch(() => {});
+  };
+
+  const chooseModel = (m) => {
+    if (m === 'pro' && !premium && !dev) {
+      setModelSheet(false);
+      Alert.alert(tr.modelPro, tr.proOnly, [
+        { text: tr.close, style: 'cancel' },
+        { text: 'Premium', onPress: () => setTimeout(() => setSettings(true), 300) },
+      ]);
+      return;
+    }
+    setModel(m);
+    setModelSheet(false);
+    AsyncStorage.setItem(MODEL_KEY, m).catch(() => {});
   };
 
   // Ештеңе қатып қалмауы үшін: 5 сек кейін экранды мәжбүрлеп ашамыз
@@ -523,8 +639,8 @@ function Main() {
       const msgs = mutate(current.messages);
       if (!msgs.length) return prev.filter((c) => c.id !== id);
       const first = msgs.find((m) => m.role === 'user');
-      const title = (first && (first.text || (first.file && first.file.name))) || tr.newChat;
-      const updated = { id: id, title: title.slice(0, 40), messages: msgs, updatedAt: Date.now() };
+      const title = current.customTitle || (first && (first.text || (first.file && first.file.name))) || tr.newChat;
+      const updated = { id: id, title: title.slice(0, 40), customTitle: current.customTitle, messages: msgs, updatedAt: Date.now() };
       return [updated].concat(prev.filter((c) => c.id !== id));
     });
 
@@ -569,6 +685,19 @@ function Main() {
         },
       },
     ]);
+  };
+
+  const startRename = (c) => {
+    setRenameId(c.id);
+    setRenameText(c.title);
+  };
+
+  const saveRename = () => {
+    const t = renameText.trim().slice(0, 40);
+    if (t) {
+      setChats((prev) => prev.map((c) => (c.id === renameId ? { ...c, title: t, customTitle: t } : c)));
+    }
+    setRenameId(null);
   };
 
   const activate = async () => {
@@ -756,9 +885,9 @@ function Main() {
     setTimeout(fn, Platform.OS === 'ios' ? 600 : 250);
   };
 
-  const send = async () => {
-    const text = input.trim();
-    if ((!text && !file) || loading || picking) return;
+  // Бір сұрақты орындайды: лимит -> чатқа қосу -> жауап (немесе сурет)
+  // onAccepted берілсе (жаңа хабарлама), қате болғанда мәтін мен файл қайтарылады
+  const run = async (id, base, userMsg, onAccepted) => {
     setLoading(true);
     let q;
     try {
@@ -782,39 +911,70 @@ function Main() {
       );
       return;
     }
-    const base = messages;
-    const userMsg = file ? { role: 'user', text: text, file: file } : { role: 'user', text: text };
+    const token = ++runRef.current;
     const next = base.concat([userMsg]);
-    let id = activeId;
-    if (!id) {
-      id = String(Date.now());
-      setActiveId(id);
-    }
-    const sentFile = file;
     upsert(id, () => next);
-    setInput('');
-    setFile(null);
-    setLoading(true);
+    if (onAccepted) onAccepted();
+    const text = userMsg.text || '';
     try {
-      if (isImagePrompt(text)) {
+      let reply;
+      if (!userMsg.file && isImagePrompt(text)) {
         const { data: authData, error: authError } = await supabase.auth.getSession();
         if (authError || !authData.session || !authData.session.access_token) {
           throw new Error('Сессия истекла. Войдите в аккаунт заново.');
         }
         const imageData = await generateImage(text, authData.session.access_token);
-        upsert(id, (m) => m.concat([{ role: 'model', text: 'Готово. Вот изображение:', imageData }]));
+        reply = { role: 'model', text: 'Готово. Вот изображение:', imageData };
       } else {
-        const answer = await askGemini(API_KEY, await withData(next), profile ? profile.name : '', q.premium);
-        upsert(id, (m) => m.concat([{ role: 'model', text: answer }]));
+        const useModel = model === 'pro' && !q.premium && !q.dev ? 'auto' : model;
+        const answer = await askGemini(API_KEY, await withData(next), profile ? profile.name : '', q.premium, useModel);
+        reply = { role: 'model', text: answer };
       }
+      if (token !== runRef.current) return;
+      upsert(id, (m) => m.concat([reply]));
     } catch (e) {
-      upsert(id, () => base);
-      setInput(text);
-      setFile(sentFile);
+      if (token !== runRef.current) return;
+      if (onAccepted) {
+        upsert(id, () => base);
+        setInput(userMsg.text || '');
+        setFile(userMsg.file || null);
+      }
       Alert.alert(tr.error, /Network request failed/i.test(e.message) ? tr.offline : e.message);
     } finally {
-      setLoading(false);
+      if (token === runRef.current) setLoading(false);
     }
+  };
+
+  const send = () => {
+    const text = input.trim();
+    if ((!text && !file) || loading || picking) return;
+    const base = messages;
+    const userMsg = file ? { role: 'user', text: text, file: file } : { role: 'user', text: text };
+    let id = activeId;
+    if (!id) {
+      id = String(Date.now());
+      setActiveId(id);
+    }
+    run(id, base, userMsg, () => {
+      setInput('');
+      setFile(null);
+    });
+  };
+
+  // Жауапты тоқтату: жауап келсе де чатқа қосылмайды
+  const stop = () => {
+    runRef.current++;
+    setLoading(false);
+  };
+
+  // Соңғы жауапты қайта жасау
+  const regen = () => {
+    if (loading || !active) return;
+    const m = active.messages;
+    const last = m[m.length - 1];
+    const u = m[m.length - 2];
+    if (!last || last.role !== 'model' || !u || u.role !== 'user') return;
+    run(active.id, m.slice(0, m.length - 2), u);
   };
 
   // Сурет жасау (Cloudflare Worker)
@@ -858,7 +1018,8 @@ function Main() {
       }
       const ask =
         'Write clean, working code for this task. Reply with the code in fenced code blocks and a very short explanation.\n\n' + text;
-      const answer = await askGemini(API_KEY, [{ role: 'user', text: ask }], profile ? profile.name : '', q.premium);
+      const useModel = model === 'pro' && !q.premium && !q.dev ? 'auto' : model;
+      const answer = await askGemini(API_KEY, [{ role: 'user', text: ask }], profile ? profile.name : '', q.premium, useModel);
       setCodeAnswer(answer);
     } catch (e) {
       Alert.alert(tr.error, /Network request failed/i.test(e.message) ? tr.offline : e.message);
@@ -867,9 +1028,30 @@ function Main() {
     }
   };
 
+  // Қате туралы хабарлау: жүйелік "бөлісу" терезесі ашылады (Telegram, пошта т.б.)
+  const sendReport = async () => {
+    const t = reportText.trim();
+    if (!t) {
+      Alert.alert(tr.reportEmpty);
+      return;
+    }
+    const info = [
+      'Dux AI bug report',
+      'OS: ' + Platform.OS + ' ' + Platform.Version,
+      'Lang: ' + lang + ', theme: ' + theme + ', model: ' + model,
+      'Plan: ' + (dev ? 'dev' : premium ? 'premium' : 'free') + ', used: ' + used + '/' + limit,
+      'User: ' + (uid || '-'),
+    ].join('\n');
+    try {
+      await Share.share({ message: t + '\n\n' + info });
+      setReportOpen(false);
+      setReportText('');
+    } catch (e) {}
+  };
+
   const canSend = (input.trim().length > 0 || !!file) && !loading && !picking;
 
-  const renderMessage = ({ item }) => {
+  const renderMessage = ({ item, index }) => {
     if (item.role === 'user') {
       return (
         <View style={s.userBubble}>
@@ -887,19 +1069,47 @@ function Main() {
         </View>
       );
     }
+    const isLast = index === messages.length - 1;
     return (
       <View style={s.botRow}>
         <Image source={require('./assets/dux-icon.png')} style={s.botAvatar} />
         <View style={s.botBody}>
           <RichText text={item.text || ''} onCopy={copyText} copied={copied} />
           {!!item.imageData && <Image source={{ uri: item.imageData }} style={s.generatedImage} resizeMode="contain" />}
-          {!!item.text && <TouchableOpacity onPress={() => copyText(item.text)} hitSlop={10} style={s.copyBtn}>
-            <Ionicons name={copied === item.text ? 'checkmark' : 'copy-outline'} size={17} color={C.muted} />
-          </TouchableOpacity>}
+          <View style={s.actions}>
+            {!!item.text && (
+              <TouchableOpacity onPress={() => copyText(item.text)} hitSlop={10} style={s.copyBtn}>
+                <Ionicons name={copied === item.text ? 'checkmark' : 'copy-outline'} size={17} color={C.muted} />
+              </TouchableOpacity>
+            )}
+            {isLast && !loading && (
+              <TouchableOpacity onPress={regen} hitSlop={10} style={s.copyBtn} accessibilityLabel={tr.regen}>
+                <Ionicons name="refresh" size={18} color={C.muted} />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </View>
     );
   };
+
+  const modelRows = MODEL_IDS.map((id) => {
+    const locked = id === 'pro' && !premium && !dev;
+    return (
+      <TouchableOpacity key={id} style={s.sheetRow} onPress={() => chooseModel(id)}>
+        <View style={s.sheetIcon}><Ionicons name={MODEL_ICON[id]} size={22} color={C.accent} /></View>
+        <View style={s.flex}>
+          <Text style={s.sheetText}>{modelName(id)}</Text>
+          <Text style={s.cardHint}>{modelDesc(id)}</Text>
+        </View>
+        {locked ? (
+          <Ionicons name="lock-closed" size={18} color={C.muted} />
+        ) : model === id ? (
+          <Ionicons name="checkmark-circle" size={22} color={C.accent} />
+        ) : null}
+      </TouchableOpacity>
+    );
+  });
 
   let body;
   if (!ready || !authReady) {
@@ -979,6 +1189,7 @@ function Main() {
           style={s.flex}
           contentContainerStyle={s.list}
           data={messages}
+          extraData={theme + lang + loading + copied}
           keyExtractor={(_, i) => String(i)}
           onContentSizeChange={() => list.current && list.current.scrollToEnd({ animated: true })}
           keyboardShouldPersistTaps="handled"
@@ -1038,6 +1249,11 @@ function Main() {
           </View>
         )}
         <View style={s.bar}>
+          <TouchableOpacity style={s.modelPill} onPress={() => setModelSheet(true)} disabled={loading}>
+            <Ionicons name={MODEL_ICON[model]} size={15} color={C.accent} />
+            <Text style={s.modelPillText}>{modelName(model)}</Text>
+            <Ionicons name="chevron-down" size={14} color={C.muted} />
+          </TouchableOpacity>
           <View style={s.inputWrap}>
             <TouchableOpacity style={s.plusBtn} onPress={() => setSheet(true)} disabled={loading}>
               <Ionicons name="add" size={24} color={C.text} />
@@ -1050,18 +1266,24 @@ function Main() {
               placeholder={tr.msgPh}
               placeholderTextColor={C.muted}
             />
-            {!canSend || recording ? (
+            {!loading && (!canSend || recording) ? (
               <TouchableOpacity style={[s.micBtn, recording && s.micOn]} onPress={toggleMic} disabled={transcribing}>
                 <Ionicons name={recording ? 'stop' : 'mic'} size={20} color={recording ? '#fff' : C.accent} />
               </TouchableOpacity>
             ) : null}
-            <TouchableOpacity
-              style={[s.sendBtn, !canSend && s.sendOff]}
-              onPress={send}
-              disabled={!canSend}
-            >
-              <Ionicons name="arrow-up" size={20} color={C.accentInk} />
-            </TouchableOpacity>
+            {loading ? (
+              <TouchableOpacity style={s.sendBtn} onPress={stop} accessibilityLabel={tr.stop}>
+                <Ionicons name="stop" size={18} color={C.accentInk} />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[s.sendBtn, !canSend && s.sendOff]}
+                onPress={send}
+                disabled={!canSend}
+              >
+                <Ionicons name="arrow-up" size={20} color={canSend ? C.accentInk : C.muted} />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -1075,6 +1297,7 @@ function Main() {
   if (stage === 'lang') {
     return (
       <SafeAreaView style={[s.screen, s.introWrap]}>
+        <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
         <Image source={require('./assets/dux-icon.png')} style={s.logo} />
         <Text style={s.hello}>Dux AI</Text>
         <Text style={s.hint}>Тілді таңдаңыз · Выберите язык · Choose language</Text>
@@ -1101,6 +1324,7 @@ function Main() {
   if (stage === 'logo') {
     return (
       <SafeAreaView style={[s.screen, s.introWrap]}>
+        <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
         <Image source={require('./assets/dux-icon.png')} style={s.splashLogo} />
         <Text style={s.hello}>Dux AI</Text>
       </SafeAreaView>
@@ -1109,6 +1333,7 @@ function Main() {
 
   return (
     <SafeAreaView style={s.screen}>
+      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
       {body}
 
       {drawerOpen && (
@@ -1123,13 +1348,22 @@ function Main() {
               s.drawer,
               {
                 width: DRAWER_W,
+                paddingTop: topPad + 14,
+                paddingBottom: insets.bottom + 8,
                 transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [-DRAWER_W, 0] }) }],
               },
             ]}
           >
             <View style={s.drawerHead}>
               <Image source={require('./assets/dux-icon.png')} style={s.drawerLogo} />
-              <Text style={s.drawerTitle}>Dux AI</Text>
+              <Text style={[s.drawerTitle, s.flex]}>Dux AI</Text>
+              <TouchableOpacity
+                onPress={() => chooseTheme(theme === 'dark' ? 'light' : 'dark')}
+                hitSlop={10}
+                style={s.themeBtn}
+              >
+                <Ionicons name={theme === 'dark' ? 'sunny-outline' : 'moon-outline'} size={22} color={C.text} />
+              </TouchableOpacity>
             </View>
 
             <TouchableOpacity style={s.newBtn} onPress={newChat} disabled={loading}>
@@ -1160,11 +1394,28 @@ function Main() {
             </TouchableOpacity>
 
             <Text style={s.section}>{tr.recent}</Text>
+            <View style={s.searchBox}>
+              <Ionicons name="search" size={18} color={C.muted} />
+              <TextInput
+                style={s.searchInput}
+                value={chatQuery}
+                onChangeText={setChatQuery}
+                placeholder={tr.search}
+                placeholderTextColor={C.muted}
+                autoCorrect={false}
+              />
+              {!!chatQuery && (
+                <TouchableOpacity onPress={() => setChatQuery('')} hitSlop={10}>
+                  <Ionicons name="close-circle" size={18} color={C.muted} />
+                </TouchableOpacity>
+              )}
+            </View>
             <FlatList
-              data={chats}
+              data={shownChats}
               keyExtractor={(c) => c.id}
               style={s.flex}
-              ListEmptyComponent={<Text style={s.noChats}>{tr.noChats}</Text>}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={<Text style={s.noChats}>{chatQuery ? tr.noMatch : tr.noChats}</Text>}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[s.chatItem, item.id === activeId && s.chatItemActive]}
@@ -1173,7 +1424,10 @@ function Main() {
                 >
                   <Ionicons name="chatbubble-outline" size={18} color={C.muted} />
                   <Text style={s.chatTitle} numberOfLines={1}>{item.title}</Text>
-                  <TouchableOpacity onPress={() => deleteChat(item.id)} hitSlop={10}>
+                  <TouchableOpacity onPress={() => startRename(item)} hitSlop={8} accessibilityLabel={tr.rename}>
+                    <Ionicons name="pencil-outline" size={17} color={C.muted} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => deleteChat(item.id)} hitSlop={8}>
                     <Ionicons name="trash-outline" size={18} color={C.muted} />
                   </TouchableOpacity>
                 </TouchableOpacity>
@@ -1227,6 +1481,74 @@ function Main() {
         </Pressable>
       </Modal>
 
+      <Modal visible={modelSheet} transparent animationType="slide" onRequestClose={() => setModelSheet(false)}>
+        <Pressable style={s.sheetBackdrop} onPress={() => setModelSheet(false)}>
+          <Pressable style={s.sheet} onPress={() => {}}>
+            <View style={s.grabber} />
+            <Text style={[s.cardTitle, { paddingHorizontal: 8, paddingTop: 4 }]}>{tr.modelTitle}</Text>
+            {modelRows}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={renameId !== null} transparent animationType="fade" onRequestClose={() => setRenameId(null)}>
+        <Pressable style={s.centerBackdrop} onPress={() => setRenameId(null)}>
+          <Pressable style={s.renameBox} onPress={() => {}}>
+            <Text style={s.cardTitle}>{tr.renameTitle}</Text>
+            <TextInput
+              style={s.renameInput}
+              value={renameText}
+              onChangeText={setRenameText}
+              maxLength={40}
+              autoFocus
+              selectTextOnFocus
+              onSubmitEditing={saveRename}
+              placeholder={tr.renameTitle}
+              placeholderTextColor={C.muted}
+            />
+            <View style={s.renameBtns}>
+              <TouchableOpacity style={[s.ghostBtn, s.flex]} onPress={() => setRenameId(null)}>
+                <Text style={s.ghostText}>{tr.cancel}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.newBtn, s.flex]} onPress={saveRename}>
+                <Text style={s.newBtnText}>{tr.save}</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={reportOpen} animationType="slide" onRequestClose={() => setReportOpen(false)}>
+        <SafeAreaProvider>
+          <SafeAreaView style={s.screen}>
+            <View style={s.header}>
+              <View style={s.iconBtn} />
+              <Text style={s.headerTitle}>{tr.report}</Text>
+              <TouchableOpacity style={s.iconBtn} onPress={() => setReportOpen(false)}>
+                <Ionicons name="close" size={26} color={C.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={s.setList} keyboardShouldPersistTaps="handled">
+              <TextInput
+                style={s.codePrompt}
+                value={reportText}
+                onChangeText={setReportText}
+                multiline
+                placeholder={tr.reportAsk}
+                placeholderTextColor={C.muted}
+              />
+              <TouchableOpacity
+                style={[s.newBtn, !reportText.trim() && s.sendOff]}
+                onPress={sendReport}
+                disabled={!reportText.trim()}
+              >
+                <Text style={[s.newBtnText, !reportText.trim() && s.newBtnTextOff]}>{tr.reportSend}</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </SafeAreaView>
+        </SafeAreaProvider>
+      </Modal>
+
       <Modal visible={imgOpen} animationType="slide" onRequestClose={() => setImgOpen(false)}>
         <SafeAreaProvider>
           <SafeAreaView style={s.screen}>
@@ -1251,7 +1573,11 @@ function Main() {
                 onPress={makeImage}
                 disabled={imgBusy || !imgPrompt.trim()}
               >
-                {imgBusy ? <ActivityIndicator color={C.accentInk} /> : <Text style={s.newBtnText}>{tr.imgRun}</Text>}
+                {imgBusy ? (
+                  <ActivityIndicator color={C.accentInk} />
+                ) : (
+                  <Text style={[s.newBtnText, !imgPrompt.trim() && s.newBtnTextOff]}>{tr.imgRun}</Text>
+                )}
               </TouchableOpacity>
               {!!imgUrl && (
                 <Image
@@ -1290,7 +1616,11 @@ function Main() {
                 onPress={runCode}
                 disabled={codeBusy || !codePrompt.trim()}
               >
-                {codeBusy ? <ActivityIndicator color={C.accentInk} /> : <Text style={s.newBtnText}>{tr.codeRun}</Text>}
+                {codeBusy ? (
+                  <ActivityIndicator color={C.accentInk} />
+                ) : (
+                  <Text style={[s.newBtnText, !codePrompt.trim() && s.newBtnTextOff]}>{tr.codeRun}</Text>
+                )}
               </TouchableOpacity>
               {!!codeAnswer && <RichText text={codeAnswer} onCopy={copyText} copied={copied} />}
             </ScrollView>
@@ -1326,6 +1656,44 @@ function Main() {
                   <View style={[s.bar2Fill, { width: dev ? '100%' : Math.min(100, (used / limit) * 100) + '%', backgroundColor: !dev && used / limit > 0.9 ? C.danger : premium ? C.gold : C.accent }]} />
                 </View>
                 <Text style={s.cardHint}>{tr.resetNote}</Text>
+              </View>
+
+              <View style={s.card}>
+                <Text style={s.cardTitle}>{tr.theme}</Text>
+                <View style={s.langRow}>
+                  {['dark', 'light'].map((t) => (
+                    <TouchableOpacity
+                      key={t}
+                      style={[s.langBtn, s.themeOpt, theme === t && s.langBtnOn]}
+                      onPress={() => chooseTheme(t)}
+                    >
+                      <Ionicons
+                        name={t === 'dark' ? 'moon-outline' : 'sunny-outline'}
+                        size={16}
+                        color={theme === t ? C.accentInk : C.text}
+                      />
+                      <Text style={[s.langText, theme === t && s.langTextOn]}>{t === 'dark' ? tr.dark : tr.light}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <View style={s.card}>
+                <Text style={s.cardTitle}>{tr.modelTitle}</Text>
+                <View style={s.langRow}>
+                  {MODEL_IDS.map((id) => (
+                    <TouchableOpacity
+                      key={id}
+                      style={[s.langBtn, model === id && s.langBtnOn]}
+                      onPress={() => chooseModel(id)}
+                    >
+                      <Text style={[s.langText, model === id && s.langTextOn]}>
+                        {modelName(id)}{id === 'pro' && !premium && !dev ? ' 🔒' : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={s.cardHint}>{modelDesc(model)}</Text>
               </View>
 
               <View style={s.card}>
@@ -1380,6 +1748,15 @@ function Main() {
                 </View>
               )}
 
+              <TouchableOpacity
+                style={s.ghostBtn}
+                onPress={() => {
+                  setSettings(false);
+                  setTimeout(() => setReportOpen(true), 300);
+                }}
+              >
+                <Text style={s.ghostText}>{tr.report}</Text>
+              </TouchableOpacity>
               <TouchableOpacity style={s.ghostBtn} onPress={clearAll}>
                 <Text style={[s.ghostText, { color: C.danger }]}>{tr.clearAll}</Text>
               </TouchableOpacity>
@@ -1428,7 +1805,8 @@ export default function App() {
   );
 }
 
-const s = StyleSheet.create({
+// Стильдер әр тақырып үшін бір рет жасалады
+const makeStyles = (C) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
   flex: { flex: 1 },
 
@@ -1457,15 +1835,16 @@ const s = StyleSheet.create({
   botText: { color: C.text, fontSize: 16, lineHeight: 25 },
   heading: { color: C.text, fontWeight: '700', fontSize: 18, letterSpacing: -0.2 },
   bold: { fontWeight: '700' },
-  inlineCode: { fontFamily: MONO, backgroundColor: C.surface2, color: C.gold },
+  inlineCode: { fontFamily: MONO, backgroundColor: C.surface2, color: C.inlineInk },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   copyBtn: { alignSelf: 'flex-start', padding: 2 },
 
-  codeBox: { backgroundColor: '#070B14', borderColor: C.border, borderWidth: 1, borderRadius: 14, overflow: 'hidden' },
+  codeBox: { backgroundColor: C.codeBg, borderColor: C.border, borderWidth: 1, borderRadius: 14, overflow: 'hidden' },
   codeHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: C.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
   codeLang: { color: C.muted, fontSize: 12 },
   codeCopy: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   codeCopyText: { color: C.muted, fontSize: 12 },
-  codeText: { color: '#CFE3F5', fontFamily: MONO, fontSize: 13.5, lineHeight: 20, padding: 12 },
+  codeText: { color: C.codeInk, fontFamily: MONO, fontSize: 13.5, lineHeight: 20, padding: 12 },
 
   dots: { flexDirection: 'row', gap: 6, alignItems: 'center', height: 28 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.accent },
@@ -1485,7 +1864,9 @@ const s = StyleSheet.create({
   },
   previewName: { flex: 1, color: C.text },
 
-  bar: { paddingHorizontal: 12, paddingTop: 6, paddingBottom: 10 },
+  bar: { paddingHorizontal: 12, paddingTop: 6, paddingBottom: 10, gap: 6 },
+  modelPill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+  modelPillText: { color: C.text, fontSize: 13, fontWeight: '600' },
   inputWrap: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, backgroundColor: C.surface, borderRadius: 28, borderWidth: 1, borderColor: C.border, padding: 6 },
   plusBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
   input: { flex: 1, color: C.text, fontSize: 16, maxHeight: 130, minHeight: 40, paddingVertical: 9, paddingHorizontal: 8 },
@@ -1499,18 +1880,22 @@ const s = StyleSheet.create({
     width: 40, height: 40, borderRadius: 20, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center',
     shadowColor: C.accent, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
   },
-  sendOff: { backgroundColor: C.surface2, opacity: 0.5, shadowOpacity: 0, elevation: 0 },
+  sendOff: { backgroundColor: C.surface2, opacity: 0.7, shadowOpacity: 0, elevation: 0 },
 
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
-  drawer: { position: 'absolute', top: 0, bottom: 0, left: 0, backgroundColor: C.surface, paddingHorizontal: 14, paddingTop: 14, borderRightWidth: 1, borderRightColor: C.border },
+  drawer: { position: 'absolute', top: 0, bottom: 0, left: 0, backgroundColor: C.surface, paddingHorizontal: 14, borderRightWidth: 1, borderRightColor: C.border },
   drawerHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 18, paddingHorizontal: 4 },
   drawerLogo: { width: 34, height: 34, borderRadius: 10 },
   drawerTitle: { color: C.text, fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
+  themeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
   newBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: C.accent, borderRadius: 18, paddingVertical: 14 },
   newBtnText: { color: C.accentInk, fontSize: 16, fontWeight: '700' },
+  newBtnTextOff: { color: C.muted },
   codeNav: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 13, paddingHorizontal: 14, marginTop: 10, borderRadius: 16, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
   codeNavText: { color: C.text, fontSize: 16, fontWeight: '600' },
   section: { color: C.muted, fontSize: 13, fontWeight: '600', marginTop: 22, marginBottom: 8, paddingHorizontal: 4 },
+  searchBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.surface2, borderRadius: 14, paddingHorizontal: 12, marginBottom: 6 },
+  searchInput: { flex: 1, color: C.text, fontSize: 15, minHeight: 40 },
   noChats: { color: C.muted, paddingHorizontal: 4, paddingTop: 6 },
   chatItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 12, borderRadius: 14 },
   chatItemActive: { backgroundColor: C.surface2 },
@@ -1555,6 +1940,7 @@ const s = StyleSheet.create({
 
   langRow: { flexDirection: 'row', gap: 8 },
   langBtn: { flex: 1, alignItems: 'center', paddingVertical: 11, borderRadius: 12, backgroundColor: C.surface2 },
+  themeOpt: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
   langBtnOn: { backgroundColor: C.accent },
   langText: { color: C.text, fontSize: 15 },
   langTextOn: { color: C.accentInk, fontWeight: '700' },
@@ -1564,4 +1950,12 @@ const s = StyleSheet.create({
   grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, marginBottom: 10 },
   sheetRow: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 16, paddingHorizontal: 8 },
   sheetText: { color: C.text, fontSize: 17 },
+
+  centerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', paddingHorizontal: 24 },
+  renameBox: { backgroundColor: C.surface, borderRadius: 20, borderWidth: 1, borderColor: C.border, padding: 18, gap: 14 },
+  renameInput: { color: C.text, fontSize: 16, minHeight: 48, paddingHorizontal: 14, backgroundColor: C.surface2, borderRadius: 14 },
+  renameBtns: { flexDirection: 'row', gap: 10 },
 });
+
+const STYLES = { dark: makeStyles(THEMES.dark), light: makeStyles(THEMES.light) };
+let s = STYLES.dark;
