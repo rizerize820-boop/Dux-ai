@@ -817,7 +817,7 @@ function Main() {
     }
   };
 
-  // Сурет жасау (Pollinations — тегін, кілтсіз)
+  // Сурет жасау (Cloudflare Worker)
   const makeImage = async () => {
     const text = imgPrompt.trim();
     if (!text || imgBusy) return;
@@ -832,8 +832,11 @@ function Main() {
         Alert.alert(tr.limitHit, q.premium ? tr.limitTomorrow : tr.limitFree(FREE_DAILY, PREMIUM_DAILY));
         return;
       }
-      const seed = Math.floor(Math.random() * 1000000);
-      setImgUrl('https://image.pollinations.ai/prompt/' + encodeURIComponent(text) + '?width=1024&height=1024&nologo=true&model=flux&seed=' + seed);
+      const { data: authData } = await supabase.auth.getSession();
+      const token = authData && authData.session && authData.session.access_token;
+      if (!token) throw new Error('Сессия истекла. Войдите в аккаунт заново.');
+      setImgUrl(await generateImage(text, token));
+      setImgBusy(false);
     } catch (e) {
       setImgBusy(false);
       Alert.alert(tr.error, /Network request failed/i.test(e.message) ? tr.offline : e.message);
